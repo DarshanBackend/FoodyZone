@@ -37,11 +37,6 @@ const sellerSchema = new mongoose.Schema({
     enum: ["seller", "admin"],
     default: "seller"
   },
-  businessType: {
-    type: String,
-    enum: ["delivery", "grocery"],
-    default: "delivery"
-  },
 }, { timestamps: true });
 
 const sellerModel = mongoose.model("seller", sellerSchema);

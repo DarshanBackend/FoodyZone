@@ -6,7 +6,7 @@ import { deleteFromS3, updateS3, uploadToS3 } from "../utils/s3Service.js";
 
 export const createNewCategory = async (req, res) => {
   try {
-    const { name, parentCategory, type } = req.body;
+    const { name, parentCategory } = req.body;
     const { _id } = req.user;
     const categoryImage = req.file;
 
@@ -26,8 +26,7 @@ export const createNewCategory = async (req, res) => {
     const categoryData = {
       name: name,
       image: img,
-      sellerId: _id,
-      type: type || "delivery"
+      sellerId: _id
     };
 
     if (parentCategory && mongoose.Types.ObjectId.isValid(parentCategory)) {
@@ -56,11 +55,6 @@ export const getAllCategory = async (req, res) => {
       filter.parentCategory = null;
     } else if (parentCategory) {
       filter.parentCategory = parentCategory;
-    }
-
-    const { type } = req.query;
-    if (type) {
-      filter.type = type;
     }
 
     const category = await categoryModel.find(filter)
@@ -93,22 +87,12 @@ export const getCategoryById = async (req, res) => {
       return sendBadRequestResponse(res, "Category not found")
     }
 
-    // Level 1: Get direct children (e.g., "Mobile Phones", "Mobile Accessories")
-    const sections = await categoryModel.find({ parentCategory: id });
-
-    // Level 2: Get children of those sections (e.g., "Android", "iOS" under "Mobile Phones")
-    const categoryTree = await Promise.all(sections.map(async (section) => {
-      const subCategories = await categoryModel.find({ parentCategory: section._id });
-      return {
-        ...section.toObject(),
-        childCategories: subCategories // These are the actual items like Android, iOS
-      }
-    }));
+    const childCategories = await categoryModel.find({ parentCategory: id });
 
     return sendSuccessResponse(res, "Category fetched successfully", {
       category,
-      sections: categoryTree,
-      hasChild: categoryTree.length > 0
+      childCategories,
+      hasChild: childCategories.length > 0
     })
 
   } catch (error) {

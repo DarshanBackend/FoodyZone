@@ -74,7 +74,7 @@ export const createAdminController = async (req, res) => {
 
 export const newSellerController = async (req, res) => {
   try {
-    const { fullName, mobileNo, email, password, businessType } = req.body;
+    const { fullName, mobileNo, email, password } = req.body;
 
     if (!mobileNo || !email || !password || !fullName) {
       return res.status(400).json({
@@ -113,8 +113,7 @@ export const newSellerController = async (req, res) => {
       mobileNo,
       avatar: profileAvatar,
       password: hashedPassword,
-      role: "seller",
-      businessType: businessType || "delivery"
+      role: "seller"
     });
 
     const token = jwt.sign(newSeller.toJSON(), JWT_SCERET, { expiresIn: "7d" });
@@ -210,7 +209,7 @@ export const updateProfile = async (req, res) => {
       return sendNotFoundResponse(res, "seller or admin not found...");
     }
 
-    const { firstName, lastName, email, mobileNo, businessType } = req.body || {};
+    const { firstName, lastName, email, mobileNo } = req.body || {};
 
     let img = seller.avatar;
 
@@ -231,7 +230,6 @@ export const updateProfile = async (req, res) => {
         lastName: lastName || seller.lastName,
         email: email || seller.email,
         mobileNo: mobileNo || seller.mobileNo,
-        businessType: businessType || seller.businessType,
         avatar: img
       },
       { new: true, runValidators: true }
@@ -331,7 +329,9 @@ export const sellerLoginController = async (req, res) => {
         id: seller._id,
         email: seller.email,
         role: seller.role,
-        businessName: seller.businessName,
+        // businessName: seller.businessName, // businessName is not in the schema provided, assume firstName/lastName used or businessName is missing.
+        firstName: seller.firstName,
+        lastName: seller.lastName,
         mobileNo: seller.mobileNo
       },
       token

@@ -18,11 +18,6 @@ const categorySchema = new mongoose.Schema({
     type: mongoose.Types.ObjectId,
     ref: "seller",
     default: null
-  },
-  type: {
-    type: String,
-    enum: ["delivery", "grocery"],
-    default: "delivery"
   }
 }, { timestamps: true })
 
