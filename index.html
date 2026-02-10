@@ -1,0 +1,148 @@
+<!-- normal payment code -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Razorpay Payment Test</title>
+</head>
+<body>
+  <h2>Razorpay Payment Test</h2>
+
+  <div>
+    <label>Order ID:</label>
+    <input type="text" id="orderId" placeholder="Enter Order ID" />
+  </div>
+  <div>
+    <label>Auth Token:</label>
+    <input type="text" id="authToken" placeholder="Enter JWT Token" />
+  </div>
+  <button onclick="initiatePayment()">Initiate Payment</button>
+
+  <script>
+    const BASE_URL = "http://localhost:7000/api";
+
+    async function initiatePayment() {
+      const orderId = document.getElementById("orderId").value;
+      const token = document.getElementById("authToken").value;
+      if (!orderId) return alert("Order ID required");
+      if (!token) return alert("Auth Token required");
+
+      const res = await fetch(`${BASE_URL}/payment/${orderId}/initiate`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${token}` 
+        }
+      });
+
+      const data = await res.json();
+      if (!data.success) return alert(data.message);
+
+      const options = {
+        key: data.result.key,
+        amount: data.result.amount * 100,
+        currency: "INR",
+        name: "Test Store",
+        order_id: data.result.razorpayOrderId,
+        handler: async function (response) {
+          await fetch(`${BASE_URL}/payment/${orderId}/verify`, {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json", 
+              "Authorization": `Bearer ${token}` 
+            },
+            body: JSON.stringify(response)
+          });
+          alert("Payment verified");
+          console.log(response)
+        }
+      };
+
+      const rzp = new Razorpay(options);
+      rzp.open();
+    }
+  </script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</body>
+</html>
+
+
+<!-- emi option -->
+
+<!-- <!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Razorpay EMI Payment Test</title>
+</head>
+<body>
+  <h2>Razorpay EMI Payment Test</h2>
+
+  <div>
+    <label>Order ID:</label>
+    <input type="text" id="orderId" placeholder="Enter Order ID" />
+  </div>
+  <div>
+    <label>Auth Token:</label>
+    <input type="text" id="authToken" placeholder="Enter JWT Token" />
+  </div>
+  <div>
+    <label>EMI Tenure (Months):</label>
+    <input type="number" id="tenure" placeholder="Enter EMI Tenure" />
+  </div>
+  <button onclick="initiateEMIPayment()">Initiate EMI Payment</button>
+
+  <script>
+    const BASE_URL = "http://localhost:7000/api";
+
+    async function initiateEMIPayment() {
+      const orderId = document.getElementById("orderId").value;
+      const token = document.getElementById("authToken").value;
+      const tenure = parseInt(document.getElementById("tenure").value);
+
+      if (!orderId) return alert("Order ID required");
+      if (!token) return alert("Auth Token required");
+      if (!tenure || tenure <= 0) return alert("Valid EMI tenure required");
+
+      const res = await fetch(`${BASE_URL}/payment/${orderId}/initiate-emi`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${token}` 
+        },
+        body: JSON.stringify({ tenure })
+      });
+
+      const data = await res.json();
+      if (!data.success) return alert(data.message);
+
+      const options = {
+        key: data.result.key,
+        amount: data.result.totalAmount * 100,
+        currency: data.result.currency,
+        name: "Test Store",
+        order_id: data.result.razorpayOrderId,
+        handler: async function (response) {
+          await fetch(`${BASE_URL}/payment/${orderId}/verify-emi`, {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json", 
+              "Authorization": `Bearer ${token}` 
+            },
+            body: JSON.stringify(response)
+          });
+          alert("EMI Payment verified");
+          console.log(response)
+        }
+      };
+
+      const rzp = new Razorpay(options);
+      rzp.open();
+    }
+  </script>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</body>
+</html> -->
