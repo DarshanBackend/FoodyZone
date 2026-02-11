@@ -12,12 +12,7 @@ const brandSchema = new mongoose.Schema(
       type: String,
       required: true
     },
-    categories: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "category"
-      }
-    ],
+    // categories removed as per user request
     sellerId: {
       type: mongoose.Types.ObjectId,
       ref: "seller"

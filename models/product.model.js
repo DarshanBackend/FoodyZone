@@ -5,70 +5,77 @@ const galleryImage = new mongoose.Schema({
     gImageKey: { type: String, default: null }
 });
 
-// For different pack sizes
-const packSizeSchema = new mongoose.Schema({
-    weight: { type: Number, required: true },        // 250, 350, 500
-    unit: {
-        type: String,
-        enum: ["g", "kg", "ml", "l", "pc"],
-        required: true
-    },
-    price: { type: Number, required: true, min: 0 }, // Price for this pack
-    stock: { type: Number, default: 0, min: 0 }      // Available units of this pack
-});
-
-const productSchema = new mongoose.Schema({
-    productName: { type: String, default: null },
+// 1. Base Product Schema (Common Fields)
+const baseProductSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    description: { type: String, default: null },
 
     category: {
         type: mongoose.Types.ObjectId,
         ref: "category",
-        required: [true, "category ref id is required"],
+        required: [true, "Category is required"],
     },
     sellerId: {
         type: mongoose.Types.ObjectId,
         ref: "seller",
-        required: [true, "seller id is required"]
+        required: [true, "Seller ID is required"]
     },
-    inStock: { type: Boolean, default: true }, // automatically update when stock changes
 
-    // Base product pricing (optional, can be used as reference)
-    price: { type: Number, default: null },
-    originalPrice: { type: Number, default: null },
-    discount: { type: Number, default: null },
+    // Common Image Fields
+    image: { type: String, default: null },
+    imageKey: { type: String, default: null },
+    // gImage removed from base, specific to Food now as per request
 
-    // Admin-side: total stock with unit
-    totalQuantity: {
-        value: { type: Number, required: true, min: 0 }, // e.g., 5
-        unit: {
-            type: String,
-            enum: ["g", "kg", "ml", "l", "pc"],
-            required: true
+    price: { type: Number, required: true, default: 0 },
+
+    isActive: { type: Boolean, default: true },
+    rating: { type: Number, default: 0 }
+
+}, {
+    timestamps: true,
+    discriminatorKey: 'docType',
+    toJSON: {
+        transform: function (doc, ret) {
+            delete ret.docType;
+            return ret;
         }
+    }
+});
+
+const ProductModel = mongoose.model("product", baseProductSchema);
+
+// 2. Grocery Product Schema
+const GroceryProduct = ProductModel.discriminator('grocery', new mongoose.Schema({
+    // Grocery specific fields
+    brand: {
+        type: mongoose.Types.ObjectId,
+        ref: "brand",
+        default: null
     },
-    soldCount: { type: Number, default: 0 },
+    discountedPrice: { type: Number, default: 0 }, // Specific to Grocery
+    manufacturer: { type: String, default: null },
+    soldBy: { type: String, default: null },
+    netQty: { type: String, default: null },
+    productType: { type: String, default: null }, // Renamed from typeOfProduct
+    disclaimer: { type: String, default: null },
+    customerCareDetails: { type: String, default: null },
+    // User explicitly said "image nathi" for grocery, so no image field here.
+}));
 
-    // User-side: available pack sizes
-    packSizes: [packSizeSchema],
+// 3. Food Delivery Product Schema
+const FoodDeliveryProduct = ProductModel.discriminator('delivery', new mongoose.Schema({
+    // Food specific fields
+    // gImage removed
 
-    // Product Type for delivery/grocery separation
-    productType: {
-        type: String,
-        enum: ["delivery", "grocery"],
-        default: "delivery"
-    },
+    flavor: [{ type: String }],
+    isVeg: { type: Boolean, default: true },
 
-    productDesc: { type: String, default: null },
+    restaurantId: {
+        type: mongoose.Types.ObjectId,
+        ref: "restaurant",
+        default: null
+    }
+}));
 
-    productImage: { type: String, default: null },
-    productImageKey: { type: String, default: null },
-    gImage: [galleryImage],
-
-    productHealthBenefit: { type: String, default: null },
-    productStorage: { type: String, default: null },
-    isActive: { type: Boolean, default: true }
-}, { timestamps: true });
-
-const productModel = mongoose.model("product", productSchema);
-
-export default productModel;
+export default ProductModel;
+export { GroceryProduct, FoodDeliveryProduct };

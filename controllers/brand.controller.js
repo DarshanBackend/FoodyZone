@@ -7,7 +7,7 @@ import productModel from "../models/product.model.js";
 
 export const createBrand = async (req, res) => {
   try {
-    const { brandName, categories } = req.body;
+    const { brandName } = req.body;
     const sellerId = req.user._id;
 
     if (!brandName) {
@@ -33,7 +33,6 @@ export const createBrand = async (req, res) => {
     const brand = await brandModel.create({
       brandName,
       brandImage,
-      categories: categories ? JSON.parse(categories) : [],
       sellerId
     });
 
@@ -60,20 +59,11 @@ export const getAllBrands = async (req, res) => {
   try {
     const brands = await brandModel
       .find({})
-      .populate({
-        path: "categories",
-        select: "-updatedAt -__v",
-        populate: {
-          path: "sellerId",
-          select: "firstName email avatar role"
-        }
-      })
       .populate("sellerId", "firstName mobileNo email avatar role")
       .sort({ createdAt: -1 });
 
     return sendSuccessResponse(res, "All brands featched successfully", brands);
   } catch (error) {
-
     return sendSuccessResponse(res, 500, "ERROR WHILE get all Brand", error)
   }
 }
@@ -85,7 +75,6 @@ export const getSellerBrands = async (req, res) => {
 
     return sendSuccessResponse(res, "Get Seller Brands successfully", brand);
   } catch (error) {
-
     return sendErrorResponse(res, 500, "Error while get seller brand By Id", error)
   }
 }
@@ -95,22 +84,14 @@ export const getBrandsById = async (req, res) => {
     const { id } = req.params;
 
     const brands = await brandModel
-      .find({ _id: id })
-      .populate({
-        path: "categories",
-        select: "-updatedAt -__v",
-        populate: {
-          path: "sellerId",
-          select: "firstName email avatar role"
-        }
-      })
-      .populate("sellerId", "firstName mobileNo email avatar role")
-      .sort({ createdAt: -1 });
+      .findById(id)
+      .populate("sellerId", "firstName mobileNo email avatar role");
+
+    if (!brands) return sendErrorResponse(res, 404, "Brand not found");
 
     return sendSuccessResponse(res, "brands featched successfully", brands);
 
   } catch (error) {
-
     return sendErrorResponse(res, 500, "Error while get brand By Id", error)
   }
 }
@@ -118,7 +99,7 @@ export const getBrandsById = async (req, res) => {
 export const updateBrandById = async (req, res) => {
   try {
     const { id } = req.params;
-    const { brandName, categories } = req.body;
+    const { brandName } = req.body;
     const sellerId = req.user._id;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -149,18 +130,6 @@ export const updateBrandById = async (req, res) => {
       }
       const img = await uploadToS3(req.file);
       brand.brandImage = img;
-    }
-
-    if (categories !== undefined) {
-      try {
-        brand.categories = Array.isArray(categories) ? categories : JSON.parse(categories);
-      } catch {
-        return res.status(400).json({ success: false, message: "Categories must be a valid JSON array" });
-      }
-    }
-
-    if (brand.schema.path("sellerId")) {
-      brand.sellerId = sellerId;
     }
 
     await brand.save();
@@ -236,9 +205,7 @@ export const getProductsByBrandId = async (req, res) => {
     })
       .populate("sellerId", "firstName email mobileNo avatar")
       .populate("brand", "brandName brandImage")
-      .populate("categories", "name image")
-      .populate("variantId")
-
+      .populate("category", "name image") // Corrected from 'categories' to 'category' matching product model
 
     return sendSuccessResponse(res, `Product fetached related barnd ${id}`, {
       total: products.length,
@@ -249,26 +216,3 @@ export const getProductsByBrandId = async (req, res) => {
     return sendErrorResponse(res, 500, "Error while getProductsByBrandId", error)
   }
 }
-
-export const getBrandsByCategoryId = async (req, res) => {
-  try {
-    const { categoryId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
-      return sendBadRequestResponse(res, "Invalid category ID");
-    }
-
-    const brands = await brandModel.find({
-      categories: { $in: [categoryId] }
-    })
-      .sort({ brandName: 1 });
-
-    return sendSuccessResponse(res, "Brands fetched successfully", {
-      total: brands.length,
-      brands
-    });
-  } catch (error) {
-
-    return sendErrorResponse(res, 500, "Error while fetching brands by category", error);
-  }
-};

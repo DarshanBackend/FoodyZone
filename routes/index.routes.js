@@ -6,9 +6,9 @@ import { sendResponse, sendSuccessResponse, sendBadRequestResponse, sendNotFound
 import { deleteFromS3, deleteManyFromS3, listBucketObjects, updateS3, uploadToS3 } from '../utils/s3Service.js';
 import { upload } from '../helper/imageUplode.js';
 import { createNewCategory, deleteCategory, getAllCategory, getCategoryById, searchCategory, updateCategory } from '../controllers/category.controller.js';
-import { createBrand, deleteBrand, getAllBrands, getBrandsById, getProductsByBrandId, getSellerBrands, searchBrand, updateBrandById, getBrandsByCategoryId } from '../controllers/brand.controller.js';
+import { createBrand, deleteBrand, getAllBrands, getBrandsById, getProductsByBrandId, getSellerBrands, searchBrand, updateBrandById } from '../controllers/brand.controller.js';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../controllers/wishlist.controller.js';
-import { createProduct, deleteProduct, getAllProduct, getProductByCategory, getProductById, getProductFilters, getSellerProducts, searchProducts, updateProduct } from '../controllers/product.controller.js';
+import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters } from '../controllers/product.controller.js';
 
 import comboController from '../controllers/combo.controller.js';
 import cartController from '../controllers/cart.controller.js';
@@ -19,6 +19,7 @@ import { createHomeBanner, deleteBannerByName, getAllBanners, getHomeBanners, up
 import { bestSeller, getFiltteredProducts, grabNowDeals, newArrival, newProducts, trendingDeals } from '../controllers/home.controller.js';
 import { checkUserReview, createReview, deleteReview, getProductReviews, updateReview } from '../controllers/review.controller.js';
 import { createOfferBanner, deleteOfferBanner, getAllOfferBanners, updateOfferBanner } from '../controllers/offer.controller.js';
+import { createRestaurant, deleteRestaurant, getAllRestaurants, getRestaurantById, searchRestaurants, updateRestaurant } from '../controllers/restaurant.controller.js';
 
 const indexRoutes = express.Router();
 
@@ -76,6 +77,16 @@ indexRoutes.patch("/updateCategoryById/:id", adminAuth, upload.single("categoryI
 indexRoutes.delete("/deleteCategory/:id", adminAuth, deleteCategory)
 indexRoutes.get("/searchCategory", searchCategory)
 
+
+//restaurant
+indexRoutes.post("/createRestaurant", sellerAndAdminAuth, upload.fields([{ name: "restaurantImage", maxCount: 1 }, { name: "gImage", maxCount: 1 }]), createRestaurant);
+indexRoutes.get("/getAllRestaurants", getAllRestaurants);
+indexRoutes.get("/getRestaurantById/:id", getRestaurantById);
+indexRoutes.get("/searchRestaurants", searchRestaurants);
+indexRoutes.patch("/updateRestaurantById/:id", sellerAndAdminAuth, upload.fields([{ name: "restaurantImage", maxCount: 1 }, { name: "gImage", maxCount: 1 }]), updateRestaurant);
+indexRoutes.delete("/deleteRestaurant/:id", sellerAndAdminAuth, deleteRestaurant);
+
+
 //brand 
 indexRoutes.post("/createBrand", sellerAndAdminAuth, upload.single("brandImage"), createBrand)
 indexRoutes.get("/getAllBrands", getAllBrands)
@@ -85,16 +96,28 @@ indexRoutes.put("/updateBrandById/:id", sellerAndAdminAuth, upload.single("brand
 indexRoutes.delete("/deleteBrand/:id", sellerAndAdminAuth, deleteBrand)
 indexRoutes.get("/searchBrand", searchBrand)
 indexRoutes.get("/getProductsByBrandId/:id", getProductsByBrandId)
-indexRoutes.get("/getBrandsByCategoryId/:categoryId", getBrandsByCategoryId)
 
 //product
-indexRoutes.post("/createProduct", sellerAndAdminAuth, upload.array("productBanner", 10), createProduct);
-indexRoutes.get("/getAllProduct", getAllProduct)
-indexRoutes.get("/getProductById/:id", getProductById);
-indexRoutes.get("/getSellerProducts", sellerAndAdminAuth, getSellerProducts);
-indexRoutes.patch("/updateProduct/:id", sellerAndAdminAuth, upload.array("productBanner", 10), updateProduct);
-indexRoutes.delete("/deleteProduct/:id", sellerAndAdminAuth, deleteProduct)
+indexRoutes.post("/createGroceryProduct", sellerAndAdminAuth, upload.fields([{ name: "image", maxCount: 1 }]), createGroceryProduct);
+indexRoutes.post("/createFoodProduct", sellerAndAdminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "gImage", maxCount: 10 }]), createFoodProduct);
+
+indexRoutes.get("/getAllGroceryProducts", getAllGroceryProducts)
+indexRoutes.get("/getAllFoodProducts", getAllFoodProducts)
+
+indexRoutes.get("/getGroceryProductById/:id", getGroceryProductById);
+indexRoutes.get("/getFoodProductById/:id", getFoodProductById);
+
+indexRoutes.get("/getSellerGroceryProducts", sellerAndAdminAuth, getSellerGroceryProducts);
+indexRoutes.get("/getSellerFoodProducts", sellerAndAdminAuth, getSellerFoodProducts);
+
+indexRoutes.patch("/updateGroceryProduct/:id", sellerAndAdminAuth, upload.fields([{ name: "image", maxCount: 1 }]), updateGroceryProduct);
+indexRoutes.patch("/updateFoodProduct/:id", sellerAndAdminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "gImage", maxCount: 10 }]), updateFoodProduct);
+
+indexRoutes.delete("/deleteGroceryProduct/:id", sellerAndAdminAuth, deleteGroceryProduct)
+indexRoutes.delete("/deleteFoodProduct/:id", sellerAndAdminAuth, deleteFoodProduct)
+
 indexRoutes.get("/getProductByCategory/:categoryId", getProductByCategory)
+indexRoutes.get("/getProductsByRestaurantId/:restaurantId", getProductsByRestaurantId)
 indexRoutes.get("/productFilters", getProductFilters);
 indexRoutes.get("/searchProduct", searchProducts)
 
