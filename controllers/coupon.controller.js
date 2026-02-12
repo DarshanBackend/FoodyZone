@@ -176,6 +176,21 @@ export const getAllCoupon = async (req, res) => {
     }
 };
 
+export const getAllCouponAdmin = async (req, res) => {
+    try {
+        const coupons = await CouponModel.find({
+        }).sort({ createdAt: -1 });
+
+        if (!coupons || coupons.length === 0) {
+            return sendNotFoundResponse(res, "No active coupons found!");
+        }
+
+        return sendSuccessResponse(res, "Active coupons fetched successfully", coupons);
+    } catch (error) {
+        return ThrowError(res, 500, error.message);
+    }
+};
+
 export const getCouponById = async (req, res) => {
     try {
         const { id } = req.params;

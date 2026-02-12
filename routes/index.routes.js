@@ -9,12 +9,10 @@ import { createNewCategory, deleteCategory, getAllCategory, getCategoryById, sea
 import { createBrand, deleteBrand, getAllBrands, getBrandsById, getProductsByBrandId, getSellerBrands, searchBrand, updateBrandById } from '../controllers/brand.controller.js';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../controllers/wishlist.controller.js';
 import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters } from '../controllers/product.controller.js';
-
-import comboController from '../controllers/combo.controller.js';
 import cartController from '../controllers/cart.controller.js';
 import orderController from '../controllers/order.controller.js';
 import paymentController from '../controllers/payment.controller.js';
-import { applyCouponController, createCoupon, deleteCoupon, getAllCoupon, getCouponById, removeCouponController, updateCoupon } from '../controllers/coupon.controller.js';
+import { applyCouponController, createCoupon, deleteCoupon, getAllCoupon, getAllCouponAdmin, getCouponById, removeCouponController, updateCoupon } from '../controllers/coupon.controller.js';
 import { createHomeBanner, deleteBannerByName, getAllBanners, getHomeBanners, updateBannerByName } from '../controllers/banner.controller.js';
 import { bestSeller, getFiltteredProducts, grabNowDeals, newArrival, newProducts, trendingDeals } from '../controllers/home.controller.js';
 import { checkUserReview, createReview, deleteReview, getProductReviews, updateReview } from '../controllers/review.controller.js';
@@ -124,20 +122,10 @@ indexRoutes.get("/searchProduct", searchProducts)
 // filtter producrts
 indexRoutes.get("/filter", getFiltteredProducts)
 
-// productVariant routes removed 
-indexRoutes.post("/combo/create", sellerAndAdminAuth, comboController.createCombo);
-indexRoutes.get("/getAllCombos", comboController.getAllCombos);
-indexRoutes.get("/getComboById/:id", comboController.getComboById);
-indexRoutes.get("/combo/seller", sellerAuth, comboController.getSellerCombos);
-indexRoutes.put("/updateCombo/:id", sellerAndAdminAuth, comboController.updateCombo);
-indexRoutes.delete("/combo/:id", sellerAndAdminAuth, comboController.deleteCombo);
-indexRoutes.patch("/combo/toggle/:id", sellerAndAdminAuth, comboController.toggleComboActive);
-indexRoutes.post("/combo/apply/:id", comboController.applyCombo);
-
-indexRoutes.get("/product/:productId/combos", comboController.getProductSellerCombos);
 // Coupon
 indexRoutes.post("/admin/createCoupon", upload.single("couponImage"), adminAuth, createCoupon);
 indexRoutes.get("/getAllCoupon", getAllCoupon);
+indexRoutes.get("/getAllCouponAdmin", adminAuth, getAllCouponAdmin);
 indexRoutes.get("/getCouponById/:id", getCouponById);
 indexRoutes.patch("/admin/updateCoupon/:id", adminAuth, upload.single("couponImage"), updateCoupon);
 indexRoutes.delete("/admin/deleteCoupon/:id", adminAuth, deleteCoupon);
@@ -157,8 +145,6 @@ indexRoutes.get("/myCart", UserAuth, cartController.getCart);
 indexRoutes.patch("/cart/update", UserAuth, cartController.updateCartItem);
 indexRoutes.delete("/cart/remove/:cartItemId", UserAuth, cartController.removeFromCart);
 indexRoutes.delete("/cart/clear", UserAuth, cartController.clearCart);
-indexRoutes.post("/cart/apply-combo/:comboId", UserAuth, cartController.applyComboToCart);
-indexRoutes.delete("/cart/remove-combo/:comboId", UserAuth, cartController.removeComboFromCart);
 indexRoutes.get("/billing/preview", UserAuth, cartController.cartBillingPreview);
 indexRoutes.post("/cart/apply-coupon", UserAuth, cartController.applyCouponToCart);
 indexRoutes.delete("/cart/remove-coupon", UserAuth, cartController.removeCouponFromCart);

@@ -37,7 +37,9 @@ export const createGroceryProduct = async (req, res) => {
       productType: inputProductType,
       typeOfProduct,
       disclaimer,
-      customerCareDetails
+      customerCareDetails,
+      stock,
+      inStock
     } = req.body;
 
     const category = categoryInput || categories;
@@ -84,6 +86,8 @@ export const createGroceryProduct = async (req, res) => {
       sellerId,
       description,
       price,
+      stock: stock || 0,
+      inStock: inStock !== undefined ? inStock : (stock > 0),
       image,
       imageKey,
       isActive: true, // Default
@@ -122,7 +126,9 @@ export const createFoodProduct = async (req, res) => {
       price,
       flavor,
       isVeg,
-      restaurantId
+      restaurantId,
+      stock,
+      inStock
     } = req.body;
 
     // No discountedPrice, brand, etc for Food
@@ -159,6 +165,8 @@ export const createFoodProduct = async (req, res) => {
       sellerId,
       description,
       price,
+      stock: stock || 0,
+      inStock: inStock !== undefined ? inStock : (stock > 0),
       image,
       imageKey,
       isActive: true,
@@ -311,7 +319,9 @@ export const updateGroceryProduct = async (req, res) => {
       productType: inputProductType,
       typeOfProduct,
       disclaimer,
-      customerCareDetails
+      customerCareDetails,
+      stock,
+      inStock
     } = req.body;
 
     const category = categoryInput || categories;
@@ -333,6 +343,8 @@ export const updateGroceryProduct = async (req, res) => {
     if (description) updateData.description = description;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (price !== undefined) updateData.price = price;
+    if (stock !== undefined) updateData.stock = stock;
+    if (inStock !== undefined) updateData.inStock = inStock;
     if (category && mongoose.Types.ObjectId.isValid(category)) updateData.category = category;
 
     // Grocery fields
@@ -386,7 +398,9 @@ export const updateFoodProduct = async (req, res) => {
       // Food Specifics
       flavor,
       isVeg,
-      restaurantId
+      restaurantId,
+      stock,
+      inStock
     } = req.body;
 
     const sellerId = req.user?._id;
@@ -404,6 +418,8 @@ export const updateFoodProduct = async (req, res) => {
     if (description) updateData.description = description;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (price !== undefined) updateData.price = price;
+    if (stock !== undefined) updateData.stock = stock;
+    if (inStock !== undefined) updateData.inStock = inStock;
     if (category && mongoose.Types.ObjectId.isValid(category)) updateData.category = category;
 
     // Food fields

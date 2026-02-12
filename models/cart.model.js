@@ -7,23 +7,6 @@ const cartItemSchema = new mongoose.Schema(
       ref: "product",
       required: true
     },
-    packSizeId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: false // If using packSizes
-    },
-    weight: { type: Number },
-    unit: { type: String },
-
-    comboOffer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "comboOffer",
-      required: false
-    },
-
-    comboItemId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: false
-    },
 
     price: { type: Number, required: true },
     discountedPrice: { type: Number },
@@ -40,7 +23,6 @@ const cartItemSchema = new mongoose.Schema(
       required: true
     },
 
-    isComboItem: { type: Boolean, default: false },
     addedAt: { type: Date, default: Date.now }
   },
   { _id: true }
@@ -61,16 +43,6 @@ const cartSchema = new mongoose.Schema(
     totalDiscountedPrice: { type: Number, default: 0 },
     totalSavings: { type: Number, default: 0 },
 
-    appliedCombos: [
-      {
-        comboId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "comboOffer"
-        },
-        discountApplied: { type: Number, default: 0 }
-      }
-    ],
-
     appliedCoupon: {
       couponId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -83,19 +55,10 @@ const cartSchema = new mongoose.Schema(
       appliedAt: { type: Date }
     },
 
-    courierService: {
-      type: String,
-      enum: ["regular", "standard"],
-      default: "regular"
-    },
-    estimatedDeliveryDate: { type: Date },
-    deliveryCharge: { type: Number, default: 12 },
+    restaurantCharges: { type: Number, default: 0 },
 
     subtotal: { type: Number, default: 0 },
-    comboDiscount: { type: Number, default: 0 },
     couponDiscount: { type: Number, default: 0 },
-    gst: { type: Number, default: 0 },
-    shippingCharges: { type: Number, default: 0 },
     finalTotal: { type: Number, default: 0 }
   },
   { timestamps: true }

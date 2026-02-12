@@ -27,6 +27,8 @@ const baseProductSchema = new mongoose.Schema({
     // gImage removed from base, specific to Food now as per request
 
     price: { type: Number, required: true, default: 0 },
+    stock: { type: Number, required: true, default: 0 },
+    inStock: { type: Boolean, default: true },
 
     isActive: { type: Boolean, default: true },
     rating: { type: Number, default: 0 }
