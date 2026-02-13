@@ -43,7 +43,7 @@ const getRatingText = (rating) => {
 
 export const createReview = async (req, res) => {
     try {
-        const { productId, packSizeId, overallRating, comment } = req.body;
+        const { productId, overallRating, comment } = req.body;
         const userId = req.user?._id;
 
         if (!productId || !overallRating) {
@@ -56,10 +56,12 @@ export const createReview = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid product ID!");
         }
 
+        // Check if user already reviewed this product
         const existingReview = await Review.findOne({
             productId,
             userId
         });
+
         if (existingReview) {
             return sendBadRequestResponse(res, "You have already reviewed this product!");
         }
@@ -74,7 +76,6 @@ export const createReview = async (req, res) => {
 
         const newReview = await Review.create({
             productId,
-            packSizeId: packSizeId || null,
             userId,
             overallRating: rating,
             comment: comment || ""
@@ -156,81 +157,74 @@ export const getProductReviews = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid product ID!");
         }
 
-        const query = { productId };
-
+        const query = { productId: new mongoose.Types.ObjectId(productId) };
         if (rating) {
             query.overallRating = Number(rating);
         }
 
+        // 1. Get filtered reviews with pagination
         const skip = (Number(page) - 1) * Number(limit);
+        const sortOptions = sort === "latest" ? { createdAt: -1 } : { overallRating: -1 };
 
-        const reviews = await Review.find(query)
+        const reviewsPromise = Review.find(query)
             .populate("userId", "name avatar")
-            .sort(sort === "latest" ? { createdAt: -1 } : { overallRating: -1 })
+            .sort(sortOptions)
             .skip(skip)
             .limit(Number(limit))
             .lean();
 
-        const totalReviews = await Review.countDocuments(query);
+        // 2. Get Total count for pagination
+        const totalPromise = Review.countDocuments(query);
 
-        const distributionResult = await Review.aggregate([
-            {
-                $match: {
-                    productId: new mongoose.Types.ObjectId(productId),
-                    ...(rating && { overallRating: Number(rating) })
-                }
-            },
-            {
-                $group: {
-                    _id: "$overallRating",
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-
-        distributionResult.forEach(item => {
-            const ratingKey = Number(item._id);
-            if ([1, 2, 3, 4, 5].includes(ratingKey)) {
-                distribution[ratingKey] = item.count;
-            }
-        });
-
-        const avgData = await Review.aggregate([
-            {
-                $match: {
-                    productId: new mongoose.Types.ObjectId(productId),
-                    ...(rating && { overallRating: Number(rating) })
-                }
-            },
+        // 3. Get Stats (Average & Distribution) - UNFILTERED (always shows global stats)
+        const statsPromise = Review.aggregate([
+            { $match: { productId: new mongoose.Types.ObjectId(productId) } },
             {
                 $group: {
                     _id: null,
-                    avg: { $avg: "$overallRating" },
-                    total: { $sum: 1 }
+                    averageRating: { $avg: "$overallRating" },
+                    totalReviews: { $sum: 1 },
+                    distribution: {
+                        $push: "$overallRating"
+                    }
                 }
             }
         ]);
 
-        const average = avgData.length > 0 ? Number(avgData[0].avg.toFixed(1)) : 0;
+        const [reviews, totalReviews, statsResult] = await Promise.all([
+            reviewsPromise,
+            totalPromise,
+            statsPromise
+        ]);
 
+        // Process Stats
+        const stats = statsResult[0] || { averageRating: 0, totalReviews: 0, distribution: [] };
+
+        const distributionCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        if (stats.distribution) {
+            stats.distribution.forEach(r => {
+                const key = Math.round(r);
+                if (distributionCount[key] !== undefined) distributionCount[key]++;
+            });
+        }
+
+        // Check if current logged-in user has reviewed
         let userReview = null;
-        if (req.user && req.user._id) {
-            const userReviewDoc = await Review.findOne({ productId, userId: req.user._id })
+        if (req.user?._id) {
+            const myReview = await Review.findOne({ productId, userId: req.user._id })
                 .populate("userId", "name avatar")
                 .lean();
 
-            if (userReviewDoc) {
+            if (myReview) {
                 userReview = {
-                    _id: userReviewDoc._id,
-                    rating: userReviewDoc.overallRating,
-                    ratingText: getRatingText(userReviewDoc.overallRating),
-                    comment: userReviewDoc.comment,
-                    createdAt: userReviewDoc.createdAt,
+                    _id: myReview._id,
+                    rating: myReview.overallRating,
+                    ratingText: getRatingText(myReview.overallRating),
+                    comment: myReview.comment,
+                    createdAt: myReview.createdAt,
                     user: {
-                        name: userReviewDoc.userId?.name || "Anonymous",
-                        avatar: userReviewDoc.userId?.avatar || null
+                        name: myReview.userId?.name || "Anonymous",
+                        avatar: myReview.userId?.avatar || null
                     }
                 };
             }
@@ -248,31 +242,27 @@ export const getProductReviews = async (req, res) => {
             }
         }));
 
-        let filterInfo = [];
-        if (rating) filterInfo.push(`${rating} star${rating > 1 ? 's' : ''}`);
-        const filteredBy = filterInfo.length > 0 ? filterInfo.join(', ') : 'all reviews';
-
         const response = {
             summary: {
-                average: average,
-                totalReviews: totalReviews,
-                distribution: distribution,
-                filteredBy: filteredBy
+                average: stats.averageRating ? Number(stats.averageRating.toFixed(1)) : 0,
+                totalGlobalReviews: stats.totalReviews, // Total reviews irrespective of filter
+                distribution: distributionCount,
+                filteredTotal: totalReviews // Total reviews matching current filter
             },
             reviews: formattedReviews,
-            userReview: userReview,
+            userReview,
             hasUserReviewed: !!userReview,
             pagination: {
                 page: Number(page),
                 limit: Number(limit),
                 totalPages: Math.ceil(totalReviews / Number(limit)),
                 totalReviews: totalReviews,
-                hasNext: (skip + Number(limit)) < totalReviews,
+                hasNext: (skip + reviews.length) < totalReviews,
                 hasPrev: Number(page) > 1
             }
         };
 
-        return sendSuccessResponse(res, "Review data fetched successfully!", response);
+        return sendSuccessResponse(res, "Reviews fetched successfully", response);
 
     } catch (error) {
         console.error("Get Product Reviews Error:", error);
@@ -286,43 +276,37 @@ export const checkUserReview = async (req, res) => {
         const userId = req.user?._id;
 
         if (!mongoose.Types.ObjectId.isValid(productId)) {
-            return sendBadRequestResponse(res, "Invalid product ID!");
+            return sendBadRequestResponse(res, "Invalid product ID");
+        }
+        if (!userId) {
+            return sendBadRequestResponse(res, "User authentication required");
         }
 
-        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-            return sendBadRequestResponse(res, "Invalid user ID!");
-        }
-
-        const userReview = await Review.findOne({
-            productId,
-            userId
-        })
+        const review = await Review.findOne({ productId, userId })
             .populate("userId", "name avatar")
             .lean();
 
-        if (userReview) {
-            const formattedReview = {
-                _id: userReview._id,
-                rating: userReview.overallRating,
-                ratingText: getRatingText(userReview.overallRating),
-                comment: userReview.comment,
-                createdAt: userReview.createdAt,
-                user: {
-                    name: userReview.userId?.name || "Anonymous",
-                    avatar: userReview.userId?.avatar || null
-                }
-            };
-
-            return sendSuccessResponse(res, "User review found!", {
+        if (review) {
+            return sendSuccessResponse(res, "Review found", {
                 hasReviewed: true,
-                review: formattedReview
-            });
-        } else {
-            return sendSuccessResponse(res, "User has not reviewed this product", {
-                hasReviewed: false,
-                review: null
+                review: {
+                    _id: review._id,
+                    rating: review.overallRating,
+                    ratingText: getRatingText(review.overallRating),
+                    comment: review.comment,
+                    createdAt: review.createdAt,
+                    user: {
+                        name: review.userId?.name || "Anonymous",
+                        avatar: review.userId?.avatar || null
+                    }
+                }
             });
         }
+
+        return sendSuccessResponse(res, "No review found", {
+            hasReviewed: false,
+            review: null
+        });
 
     } catch (error) {
         return ThrowError(res, 500, error.message);

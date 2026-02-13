@@ -8,26 +8,25 @@ const paymentSchema = new mongoose.Schema(
             required: true
         },
         orderId: {
-            type: String, // Storing as String to match order.orderId (e.g. ORD_123) or ObjectId if preferred. In Order model it is String.
+            type: String,
             required: true,
             index: true
         },
-        orderObjectId: { // Linking to actual Order document ID
+        orderObjectId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "order"
         },
-        razorpayOrderId: {
-            type: String,
-            required: true
-        },
-        razorpayPaymentId: {
+
+        // Stripe fields
+        stripePaymentIntentId: {
             type: String,
             required: true,
             unique: true
         },
-        razorpaySignature: {
+        stripeClientSecret: {
             type: String
         },
+
         amount: {
             type: Number,
             required: true
@@ -38,51 +37,49 @@ const paymentSchema = new mongoose.Schema(
         },
         status: {
             type: String,
+            enum: ["pending", "processing", "succeeded", "failed", "refunded", "cancelled"],
+            default: "pending",
             required: true
         },
         method: {
             type: String,
+            enum: ["card", "upi", "netbanking", "cod", "unknown"],
+            default: "card",
             required: true
         },
-        email: {
-            type: String
-        },
-        contact: {
-            type: String
-        },
-        bank: {
-            type: String
-        },
-        wallet: {
-            type: String
-        },
-        vpa: {
-            type: String
-        },
+
+        // Customer details
+        email: { type: String },
+        contact: { type: String },
+
+        // Card info (last4 only for display)
         card: {
-            id: String,
-            entity: String,
-            name: String,
+            brand: String,
             last4: String,
-            network: String,
-            type: String,
-            issuer: String,
-            international: Boolean,
-            emi: Boolean
+            expMonth: Number,
+            expYear: Number,
+            funding: String
         },
-        acquirer_data: {
-            bank_transaction_id: String
-        },
-        fee: Number,
-        tax: Number,
-        error_code: String,
-        error_description: String,
-        created_at: {
+
+        // Refund details
+        refundId: { type: String },
+        refundAmount: { type: Number, default: 0 },
+        refundStatus: { type: String },
+        refundDate: { type: Date },
+
+        // Error tracking
+        errorCode: { type: String },
+        errorMessage: { type: String },
+
+        paymentDate: {
             type: Date,
             default: Date.now
         }
     },
     { timestamps: true }
 );
+
+paymentSchema.index({ stripePaymentIntentId: 1 });
+paymentSchema.index({ userId: 1 });
 
 export default mongoose.model("payment", paymentSchema);

@@ -7,12 +7,6 @@ const orderItemSchema = new mongoose.Schema(
       ref: "product",
       required: true
     },
-    packSizeId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: false
-    },
-    weight: { type: Number },
-    unit: { type: String },
 
     price: { type: Number, required: true },
     discountedPrice: { type: Number },
@@ -26,11 +20,30 @@ const orderItemSchema = new mongoose.Schema(
       required: true
     },
 
+    // Restaurant name for delivery items
+    restaurantName: { type: String, default: null },
+
+    // Per-item estimated delivery
+    estimatedDelivery: { type: String, default: null },
+    estimatedDeliveryDate: { type: Date, default: null },
+
     itemStatus: {
       type: String,
       enum: ["pending", "confirmed", "processing", "shipped", "delivered", "returned", "cancelled"],
       default: "pending"
-    }
+    },
+
+    // Item-level status history for per-item timeline
+    statusHistory: [
+      {
+        status: String,
+        timestamp: { type: Date, default: Date.now },
+        notes: String
+      }
+    ],
+
+    deliveredAt: { type: Date },
+    cancelledAt: { type: Date }
   },
   { _id: true, timestamps: true }
 );
@@ -73,27 +86,15 @@ const orderSchema = new mongoose.Schema(
     trackingNumber: { type: String },
 
     priceSummary: {
-      subtotal: { type: Number, default: 0 }, // original prices
-      itemDiscount: { type: Number, default: 0 }, // product discounts
-      comboDiscount: { type: Number, default: 0 },
+      subtotal: { type: Number, default: 0 },
+      itemDiscount: { type: Number, default: 0 },
       couponDiscount: { type: Number, default: 0 },
       subtotalAfterDiscounts: { type: Number, default: 0 },
-      gst: { type: Number, default: 0 }, // 18% GST
       deliveryCharge: { type: Number, default: 0 },
       finalTotal: { type: Number, default: 0 }
     },
 
     appliedOffers: {
-      combos: [
-        {
-          comboId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "comboOffer"
-          },
-          title: String,
-          discountApplied: { type: Number, default: 0 }
-        }
-      ],
       coupon: {
         couponId: {
           type: mongoose.Schema.Types.ObjectId,
@@ -106,10 +107,11 @@ const orderSchema = new mongoose.Schema(
       }
     },
 
+    // Stripe Payment Info
     paymentInfo: {
       method: {
         type: String,
-        enum: ["cod", "card", "emi", "upi", "netbanking"],
+        enum: ["cod", "card", "upi", "netbanking"],
         default: "cod"
       },
       status: {
@@ -117,39 +119,12 @@ const orderSchema = new mongoose.Schema(
         enum: ["pending", "completed", "failed", "refunded"],
         default: "pending"
       },
+      stripePaymentIntentId: String,
+      stripeClientSecret: String,
       transactionId: String,
-      razorpayOrderId: String,
-      razorpayPaymentId: String,
-      razorpaySignature: String,
       paymentDate: Date,
       refundAmount: { type: Number, default: 0 },
       refundDate: Date
-    },
-
-    emiInfo: {
-      enabled: { type: Boolean, default: false },
-      tenure: { type: Number }, // months (3, 6, 9, 12 etc)
-      monthlyAmount: { type: Number },
-      totalEMIAmount: { type: Number },
-      interestRate: { type: Number }, // percentage
-      emiStatus: {
-        type: String,
-        enum: ["pending", "active", "completed", "failed"],
-        default: "pending"
-      },
-      paidInstallments: { type: Number, default: 0 },
-      nextPaymentDate: Date,
-      installments: [
-        {
-          installmentNo: Number,
-          amount: Number,
-          dueDate: Date,
-          paidDate: Date,
-          status: { type: String, enum: ["pending", "paid", "failed"], default: "pending" },
-          razorpayPaymentId: String,
-          razorpayOrderId: String
-        }
-      ]
     },
 
     orderStatus: {

@@ -162,15 +162,14 @@ indexRoutes.post("/order/:orderId/cancel", UserAuth, orderController.cancelOrder
 indexRoutes.post("/order/:orderId/return", UserAuth, orderController.returnOrder);
 indexRoutes.get("/order/admin/all-orders", adminAuth, orderController.getAllOrders);
 
-// Payment endpoints (Razorpay)
+// Payment endpoints (Stripe)
 indexRoutes.post("/payment/:orderId/initiate", UserAuth, paymentController.initiatePayment);
-indexRoutes.post("/payment/:orderId/initiate-emi", UserAuth, paymentController.initiateEMIPayment);
 indexRoutes.post("/payment/:orderId/verify", UserAuth, paymentController.verifyPayment);
 indexRoutes.get("/payment/:orderId/status", UserAuth, paymentController.getPaymentStatus);
 indexRoutes.post("/payment/:orderId/refund", UserAuth, paymentController.processRefund);
-indexRoutes.post("/payment/webhook", paymentController.handleRazorpayWebhook);
-indexRoutes.post("/payment/:orderId/pay-installment", UserAuth, paymentController.payEMIInstallment);
-indexRoutes.post("/payment/:orderId/verify-installment", UserAuth, paymentController.verifyInstallmentPayment);
+indexRoutes.post("/payment/webhook", paymentController.handleStripeWebhook);
+indexRoutes.get("/payment/my-payments", UserAuth, paymentController.getMyPayments);
+indexRoutes.get("/payment/all", adminAuth, paymentController.getAllPayments);
 
 
 //reviw.routes.js
@@ -178,7 +177,7 @@ indexRoutes.post('/createReview', UserAuth, createReview);
 indexRoutes.patch('/updateReview/:reviewId', UserAuth, updateReview);
 indexRoutes.delete('/deleteReview/:reviewId', UserAuth, deleteReview);
 indexRoutes.get('/getProductReviews/:productId', getProductReviews);
-indexRoutes.get('/checkUserReview/:productId/:variantId', UserAuth, checkUserReview);
+indexRoutes.get('/checkUserReview/:productId', UserAuth, checkUserReview);
 
 //home page api's
 indexRoutes.post("/heroBanner", adminAuth, upload.array("banners"), createHomeBanner)

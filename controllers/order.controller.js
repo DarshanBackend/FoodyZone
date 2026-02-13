@@ -2,12 +2,81 @@ import mongoose from "mongoose";
 import Order from "../models/order.model.js";
 import Cart from "../models/cart.model.js";
 import User from "../models/user.model.js";
+import Restaurant from "../models/restaurant.model.js";
 import { sendBadRequestResponse, sendErrorResponse, sendForbiddenResponse, sendNotFoundResponse, sendSuccessResponse } from "../utils/response.utils.js";
 
 const generateOrderId = () => {
   const timestamp = Date.now();
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `ORD-${timestamp}-${random}`;
+};
+
+// Local recalculateCart to ensure fresh totals before order creation
+const recalculateCart = (cart) => {
+  if (cart.appliedCoupon && !cart.appliedCoupon.couponId) {
+    cart.appliedCoupon = null;
+  }
+
+  if (!cart.items || cart.items.length === 0) {
+    cart.totalItems = 0;
+    cart.totalPrice = 0;
+    cart.totalDiscountedPrice = 0;
+    cart.totalSavings = 0;
+    cart.restaurantCharges = 0;
+    cart.couponDiscount = 0;
+    cart.subtotal = 0;
+    cart.finalTotal = 0;
+    cart.appliedCoupon = null;
+    return;
+  }
+
+  let totalItems = 0;
+  let totalOriginal = 0;
+  let totalDiscounted = 0;
+  let restaurantCharges = 0;
+
+  cart.items.forEach(i => {
+    totalItems += i.quantity;
+    totalOriginal += i.price * i.quantity;
+    totalDiscounted += (i.discountedPrice || i.price) * i.quantity;
+
+    const product = i.product;
+    if (product && typeof product === "object" && product.docType === "delivery") {
+      restaurantCharges += 10 * i.quantity;
+    }
+  });
+
+  cart.totalItems = totalItems;
+  cart.totalPrice = totalOriginal;
+  cart.totalDiscountedPrice = totalDiscounted;
+  cart.totalSavings = totalOriginal - totalDiscounted;
+  cart.restaurantCharges = restaurantCharges;
+
+  let couponDiscount = 0;
+  if (cart.appliedCoupon && cart.appliedCoupon.discountApplied) {
+    couponDiscount = cart.appliedCoupon.discountApplied;
+  }
+  cart.couponDiscount = couponDiscount;
+
+  const afterDiscounts = totalDiscounted - couponDiscount;
+  const subtotal = afterDiscounts + restaurantCharges;
+  cart.subtotal = subtotal;
+  cart.finalTotal = subtotal;
+};
+
+// Strip docType from populated product and clean response
+const cleanOrderResponse = (order) => {
+  const obj = order.toObject ? order.toObject() : { ...order };
+  if (obj.items) {
+    obj.items.forEach(item => {
+      if (item.product && item.product.docType !== undefined) {
+        delete item.product.docType;
+      }
+      if (!item.restaurantName) delete item.restaurantName;
+    });
+  }
+  delete obj.__v;
+  return obj;
 };
 
 export const createOrder = async (req, res) => {
@@ -18,13 +87,21 @@ export const createOrder = async (req, res) => {
     if (!userId) return sendBadRequestResponse(res, "User ID required");
 
     const cart = await Cart.findOne({ userId })
-      .populate("items.product", "productName productImage price emi") // Updated fields
-      .populate("appliedCombos.comboId", "title discountPercentage")
-      .populate("appliedCoupon.couponId", "code");
+      .populate({
+        path: "items.product",
+        select: "title image price stock docType sellerId restaurantId",
+        populate: {
+          path: "restaurantId",
+          select: "title"
+        }
+      });
 
     if (!cart || cart.items.length === 0) {
       return sendBadRequestResponse(res, "Cart is empty. Cannot create order.");
     }
+
+    recalculateCart(cart);
+    await cart.save();
 
     const user = await User.findById(userId);
     if (!user) return sendNotFoundResponse(res, "User not found");
@@ -33,33 +110,9 @@ export const createOrder = async (req, res) => {
       return sendBadRequestResponse(res, "Please select a shipping address");
     }
 
-    const validMethods = ["cod", "card", "emi", "upi", "netbanking"];
+    const validMethods = ["cod", "card", "upi", "netbanking"];
     if (!validMethods.includes(paymentMethod)) {
-      return sendBadRequestResponse(res, "Invalid payment method. Allowed: COD, CARD, EMI, UPI, NETBANKING");
-    }
-
-    if (paymentMethod === "emi") {
-      let eligibleEmiTotal = 0;
-
-      cart.items.forEach(item => {
-        let isEmiAllowed = true;
-        // Check product level emi flag
-        if (item.product && item.product.emi !== undefined) {
-          isEmiAllowed = item.product.emi;
-        }
-
-        if (isEmiAllowed !== false) {
-          const itemPrice = item.discountedPrice || item.price;
-          eligibleEmiTotal += itemPrice * item.quantity;
-        }
-      });
-
-      if (eligibleEmiTotal < 3000) {
-        if (eligibleEmiTotal === 0) {
-          return sendBadRequestResponse(res, "None of the items in your cart are available for EMI.");
-        }
-        return sendBadRequestResponse(res, `EMI is only available for orders with eligible items totaling ₹3000 or more. Your eligible amount is ₹${eligibleEmiTotal}`);
-      }
+      return sendBadRequestResponse(res, "Invalid payment method. Allowed: COD, CARD, UPI, NETBANKING");
     }
 
     const selectedAddress = user.address?.find(
@@ -74,30 +127,63 @@ export const createOrder = async (req, res) => {
 
     const subtotal = cart.totalPrice;
     const itemDiscount = cart.totalSavings;
-    const comboDiscount = cart.comboDiscount || 0;
     const couponDiscount = cart.couponDiscount || 0;
-    const subtotalAfterDiscounts =
-      cart.totalDiscountedPrice - comboDiscount - couponDiscount;
-    const gst = cart.gst;
-    const deliveryCharge = cart.deliveryCharge || 0;
+    const subtotalAfterDiscounts = cart.totalDiscountedPrice - couponDiscount;
+    const deliveryCharge = cart.restaurantCharges || 0;
     const finalTotal = cart.finalTotal;
 
-    const newOrder = await Order.create({
-      userId,
-      orderId,
-      items: cart.items.map(item => ({
-        product: item.product._id,
-        packSizeId: item.packSizeId || null,
-        weight: item.weight,
-        unit: item.unit,
+    const now = new Date();
+
+    // Build order items with estimated delivery and restaurant name
+    const orderItems = cart.items.map(item => {
+      const product = item.product;
+      const isDelivery = product?.docType === "delivery";
+
+      // Estimated delivery per item
+      let estimatedDelivery = null;
+      let estimatedDeliveryDate = null;
+
+      if (isDelivery) {
+        estimatedDelivery = "30-45 min";
+        estimatedDeliveryDate = new Date(now.getTime() + 45 * 60 * 1000); // 45 min from now
+      } else {
+        // Grocery — 2-3 days
+        estimatedDelivery = "2-3 days";
+        estimatedDeliveryDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 days
+      }
+
+      // Restaurant name for delivery items
+      const restaurantName = isDelivery && product.restaurantId?.title
+        ? product.restaurantId.title
+        : null;
+
+      return {
+        product: product._id,
         price: item.price,
         discountedPrice: item.discountedPrice,
         quantity: item.quantity,
         totalPrice: item.price * item.quantity,
         totalDiscountedPrice: (item.discountedPrice || item.price) * item.quantity,
         sellerId: item.sellerId,
+        restaurantName,
+        estimatedDelivery,
+        estimatedDeliveryDate,
         itemStatus: "pending"
-      })),
+      };
+    });
+
+    // Overall estimated delivery = latest item's estimated delivery
+    const latestDeliveryDate = orderItems.reduce((latest, item) => {
+      if (item.estimatedDeliveryDate && (!latest || item.estimatedDeliveryDate > latest)) {
+        return item.estimatedDeliveryDate;
+      }
+      return latest;
+    }, null);
+
+    const newOrder = await Order.create({
+      userId,
+      orderId,
+      items: orderItems,
       shippingAddress: {
         country: selectedAddress.country || "INDIA",
         houseDetails: selectedAddress.houseDetails || "",
@@ -107,28 +193,20 @@ export const createOrder = async (req, res) => {
         postalCode: selectedAddress.pincode || "",
         mapUrl: selectedAddress.mapURL || ""
       },
-      courierService: cart.courierService || "regular",
-      estimatedDeliveryDate: cart.estimatedDeliveryDate,
+      courierService: "regular",
+      estimatedDeliveryDate: latestDeliveryDate,
       priceSummary: {
         subtotal,
         itemDiscount,
-        comboDiscount,
         couponDiscount,
         subtotalAfterDiscounts,
-        gst,
         deliveryCharge,
         finalTotal
       },
       appliedOffers: {
-        combos:
-          cart.appliedCombos?.map(c => ({
-            comboId: c.comboId,
-            title: c.comboId?.title || "",
-            discountApplied: c.discountApplied || 0
-          })) || [],
         coupon: cart.appliedCoupon?.couponId
           ? {
-            couponId: cart.appliedCoupon.couponId,
+            couponId: cart.appliedCoupon.couponId._id || cart.appliedCoupon.couponId,
             code: cart.appliedCoupon.couponCode,
             discountType: cart.appliedCoupon.discountType,
             discountValue: cart.appliedCoupon.discountValue,
@@ -164,25 +242,20 @@ export const createOrder = async (req, res) => {
           totalPrice: 0,
           totalDiscountedPrice: 0,
           totalSavings: 0,
-          appliedCombos: [],
           appliedCoupon: {},
-          deliveryCharge: 0,
-          comboDiscount: 0,
           couponDiscount: 0,
-          gst: 0,
           finalTotal: 0
         }
       }
     );
 
     const populatedOrder = await Order.findById(newOrder._id)
-      .populate("items.product", "productName productImage price")
-      .populate("appliedOffers.combos.comboId", "title")
+      .populate("items.product", "title image price discountedPrice")
       .populate("appliedOffers.coupon.couponId", "code");
 
     return sendSuccessResponse(res, "Order created successfully", {
       orderId: newOrder.orderId,
-      order: populatedOrder
+      order: cleanOrderResponse(populatedOrder)
     });
   } catch (error) {
     return sendErrorResponse(res, 500, error.message);
@@ -204,7 +277,7 @@ export const getUserOrders = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const orders = await Order.find(query)
-      .populate("items.product", "productName productImage price")
+      .populate("items.product", "title image price discountedPrice")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -221,7 +294,7 @@ export const getUserOrders = async (req, res) => {
     };
 
     const formattedOrders = orders.map(order => {
-      const obj = order.toObject();
+      const obj = cleanOrderResponse(order);
       obj.estimatedDeliveryDate = formatDate(order.estimatedDeliveryDate);
       return obj;
     });
@@ -246,9 +319,8 @@ export const getOrderById = async (req, res) => {
     if (!orderId) return sendBadRequestResponse(res, "Order ID required");
 
     const order = await Order.findOne({ orderId, userId })
-      .populate("items.product", "productName productImage price hasTotalStock") // Assuming hasTotalStock helps 
+      .populate("items.product", "title image price discountedPrice")
       .populate("items.sellerId", "shopName email phone")
-      .populate("appliedOffers.combos.comboId", "title discountPrice")
       .populate("appliedOffers.coupon.couponId", "code");
 
     if (!order) {
@@ -264,7 +336,7 @@ export const getOrderById = async (req, res) => {
       return `${day} ${month}, ${year}`;
     };
 
-    const orderObj = order.toObject();
+    const orderObj = cleanOrderResponse(order);
     orderObj.estimatedDeliveryDate = formatDate(order.estimatedDeliveryDate);
 
     return sendSuccessResponse(res, "Order fetched", orderObj);
@@ -283,22 +355,26 @@ export const getOrderByMongoId = async (req, res) => {
 
     const order = await Order.findById(id)
       .populate("userId", "name email phone")
-      .populate("items.product", "productName productImage price")
+      .populate("items.product", "title image price discountedPrice")
       .populate("items.sellerId", "shopName email");
 
     if (!order) {
       return sendNotFoundResponse(res, "Order not found");
     }
 
-    return sendSuccessResponse(res, "Order fetched", order);
+    return sendSuccessResponse(res, "Order fetched", cleanOrderResponse(order));
   } catch (error) {
     return sendErrorResponse(res, 500, error.message);
   }
 };
 
 /**
- * Update Order Status
+ * Update Order Status (Admin/Seller)
  * PATCH /order/:orderId/status
+ * 
+ * Body: { status, notes?, itemId? }
+ * - If itemId is provided: only that item's status is updated
+ * - If itemId is NOT provided: all items (matching seller) are updated
  */
 export const updateOrderStatus = async (req, res) => {
   try {
@@ -308,7 +384,7 @@ export const updateOrderStatus = async (req, res) => {
     const { status, notes, itemId } = req.body;
 
     if (!userId || !orderId || !status) {
-      return sendBadRequestResponse(res, "Missing required fields");
+      return sendBadRequestResponse(res, "Missing required fields (orderId, status)");
     }
 
     const statusMap = { "Under Progress": "processing" };
@@ -319,7 +395,7 @@ export const updateOrderStatus = async (req, res) => {
       return sendBadRequestResponse(res, `Invalid status. Allowed: ${validStatuses.join(", ")}`);
     }
 
-    const order = await Order.findOne({ orderId });
+    const order = await Order.findOne({ orderId }).populate("items.product", "title image price discountedPrice");
     if (!order) return sendNotFoundResponse(res, "Order not found");
 
     const allItemsFinalized = order.items.every(i => ["delivered", "returned", "cancelled"].includes(i.itemStatus));
@@ -329,10 +405,13 @@ export const updateOrderStatus = async (req, res) => {
 
     const now = new Date();
     let updatedCount = 0;
+    const updatedItemDetails = [];
 
     for (const item of order.items) {
+      // If itemId is given, only update that specific item
       if (itemId && String(item._id) !== String(itemId)) continue;
 
+      // Seller can only update their own items
       if (role === "seller" && String(item.sellerId) !== String(userId)) continue;
       if (role !== "admin" && role !== "seller") continue;
 
@@ -341,42 +420,56 @@ export const updateOrderStatus = async (req, res) => {
         const oldItemIndex = itemHierarchy.indexOf(item.itemStatus);
         const newItemIndex = itemHierarchy.indexOf(normalizedStatus);
 
-        // Allow cancellation/return from any state typically, but if normalizedStatus IS one of them
-        // we should just let it pass or handle separately. Here "normalizedStatus" is usually one of the validStatuses.
-        // If normalizedStatus is "cancelled" or "returned", let it update.
+        // Allow cancellation/return from any state
         if (["cancelled", "returned"].includes(normalizedStatus)) {
           item.itemStatus = normalizedStatus;
+          item.statusHistory.push({
+            status: normalizedStatus,
+            timestamp: now,
+            notes: notes || `Item ${normalizedStatus}`
+          });
+          if (normalizedStatus === "cancelled") item.cancelledAt = now;
           updatedCount++;
+          updatedItemDetails.push({ itemId: item._id, product: item.product, newStatus: normalizedStatus });
           continue;
         }
 
-        // If trying to set a status that is not in hierarchy (and not cancelled/returned), skip or error.
-        if (newItemIndex === -1) continue;
+        if (newItemIndex === -1 || oldItemIndex === -1) continue;
 
-        // If current status is not in hierarchy (e.g. cancelled), skip
-        if (oldItemIndex === -1) continue;
+        // Prevent backward movement
+        if (newItemIndex < oldItemIndex) continue;
 
-        // Prevent Backward movement
-        if (newItemIndex < oldItemIndex) {
-          continue;
-        }
-
-        // Prevent Skipping Steps (e.g. Confirmed -> Shipped)
-        // Allowed: 0->1, 1->2, 2->3, 3->4
-        // Logic: newItemIndex must be <= oldItemIndex + 1
+        // Prevent skipping steps
         if (newItemIndex > oldItemIndex + 1) {
-          return sendBadRequestResponse(res, `Cannot update status directly to '${status}'. Please follow the sequence: ${itemHierarchy[oldItemIndex]} -> ${itemHierarchy[oldItemIndex + 1]}.`);
+          return sendBadRequestResponse(res,
+            `Cannot update item directly to '${normalizedStatus}'. Follow sequence: ${itemHierarchy[oldItemIndex]} → ${itemHierarchy[oldItemIndex + 1]}`
+          );
         }
 
         item.itemStatus = normalizedStatus;
+        item.statusHistory.push({
+          status: normalizedStatus,
+          timestamp: now,
+          notes: notes || `Item status updated to ${normalizedStatus}`
+        });
+
+        if (normalizedStatus === "delivered") item.deliveredAt = now;
+
         updatedCount++;
+        updatedItemDetails.push({ itemId: item._id, product: item.product, newStatus: normalizedStatus });
       }
     }
 
+    // Auto-confirm pending items when payment is completed
     if (order.paymentInfo.status === "completed") {
       order.items.forEach(item => {
         if (item.itemStatus === "pending") {
           item.itemStatus = "confirmed";
+          item.statusHistory.push({
+            status: "confirmed",
+            timestamp: now,
+            notes: "Auto-confirmed after payment"
+          });
         }
       });
     }
@@ -385,67 +478,52 @@ export const updateOrderStatus = async (req, res) => {
       return sendBadRequestResponse(res, "No valid items found to update or permission denied");
     }
 
+    // Determine global order status based on all items
     const hierarchy = ["pending", "confirmed", "processing", "shipped", "delivered"];
-
-    let minStatusIndex = hierarchy.length - 1;
-
     const activeItems = order.items.filter(i => !["cancelled", "returned"].includes(i.itemStatus));
 
     if (activeItems.length === 0) {
       const allCancelled = order.items.every(i => i.itemStatus === "cancelled");
       order.orderStatus.current = allCancelled ? "cancelled" : "returned";
     } else {
-      let hasProcessing = false;
-      let hasShipped = false;
-      let hasDelivered = false;
+      let minStatusIndex = hierarchy.length - 1;
 
       activeItems.forEach(item => {
         const idx = hierarchy.indexOf(item.itemStatus);
-        if (idx !== -1) {
-          if (idx < minStatusIndex) minStatusIndex = idx;
-          if (item.itemStatus === 'processing') hasProcessing = true;
-          if (item.itemStatus === 'shipped') hasShipped = true;
-          if (item.itemStatus === 'delivered') hasDelivered = true;
-        }
+        if (idx !== -1 && idx < minStatusIndex) minStatusIndex = idx;
       });
 
       let determinedStatus = hierarchy[minStatusIndex];
 
-      const hasActivity = hasProcessing || hasShipped || hasDelivered;
-      const hasShippingActivity = hasShipped || hasDelivered;
+      const hasDelivered = activeItems.some(i => i.itemStatus === "delivered");
+      const hasShipped = activeItems.some(i => i.itemStatus === "shipped");
+      const hasProcessing = activeItems.some(i => i.itemStatus === "processing");
 
-      if (minStatusIndex < 2 && hasActivity) {
-        determinedStatus = "processing";
-      }
+      if (minStatusIndex < 2 && (hasProcessing || hasShipped || hasDelivered)) determinedStatus = "processing";
+      if (minStatusIndex < 3 && (hasShipped || hasDelivered)) determinedStatus = "shipped";
+      if (activeItems.every(i => i.itemStatus === "delivered")) determinedStatus = "delivered";
 
-      if (minStatusIndex < 3 && hasShippingActivity) {
-        determinedStatus = "shipped";
-      }
-      if (minStatusIndex < 4 && hasDelivered) {
-        determinedStatus = "delivered";
-      }
-
-      const oldStatusIndex = hierarchy.indexOf(order.orderStatus.current);
-      const newStatusIndex = hierarchy.indexOf(determinedStatus);
-
-      if (oldStatusIndex !== -1 && newStatusIndex !== -1) {
-        if (newStatusIndex < oldStatusIndex) {
-          determinedStatus = order.orderStatus.current;
-        }
+      // Don't go backward
+      const oldIdx = hierarchy.indexOf(order.orderStatus.current);
+      const newIdx = hierarchy.indexOf(determinedStatus);
+      if (oldIdx !== -1 && newIdx !== -1 && newIdx < oldIdx) {
+        determinedStatus = order.orderStatus.current;
       }
 
       order.orderStatus.current = determinedStatus;
     }
 
+    // Push to global history if status changed
     const lastHistory = order.orderStatus.history[order.orderStatus.history.length - 1];
     if (!lastHistory || lastHistory.status !== order.orderStatus.current) {
       order.orderStatus.history.push({
         status: order.orderStatus.current,
         timestamp: now,
-        notes: notes || `Status updated via item update (${updatedCount} items)`
+        notes: notes || `Status updated (${updatedCount} item${updatedCount > 1 ? 's' : ''} → ${normalizedStatus})`
       });
     }
 
+    // Update global timeline
     const globalStatus = order.orderStatus.current;
     order.timeline = order.timeline || {};
 
@@ -456,10 +534,7 @@ export const updateOrderStatus = async (req, res) => {
       order.timeline.orderDelivered = order.timeline.orderDelivered || now;
       order.actualDeliveryDate = order.actualDeliveryDate || now;
 
-      if (order.paymentInfo.method === "cod" && order.paymentInfo.status !== "completed") {
-        order.paymentInfo.status = "completed";
-      }
-      if (order.paymentInfo.status !== "refunded") {
+      if (order.paymentInfo.method === "cod" && order.paymentInfo.status !== "refunded") {
         order.paymentInfo.status = "completed";
       }
     }
@@ -467,10 +542,23 @@ export const updateOrderStatus = async (req, res) => {
     order.lastUpdated = now;
     await order.save();
 
+    // Build response with all items and their current statuses
+    const itemsSummary = order.items.map(item => ({
+      itemId: item._id,
+      product: item.product,
+      quantity: item.quantity,
+      price: item.price,
+      itemStatus: item.itemStatus,
+      deliveredAt: item.deliveredAt || null,
+      cancelledAt: item.cancelledAt || null
+    }));
+
     return sendSuccessResponse(res, "Order status updated successfully", {
       orderId: order.orderId,
-      currentStatus: order.orderStatus.current,
-      updatedItems: updatedCount
+      orderStatus: order.orderStatus.current,
+      updatedItems: updatedCount,
+      updatedItemDetails,
+      allItems: itemsSummary
     });
 
   } catch (error) {
@@ -581,7 +669,7 @@ export const getAllOrders = async (req, res) => {
 
     const orders = await Order.find(query)
       .populate("userId", "name email phone")
-      .populate("items.product", "productName price")
+      .populate("items.product", "title image price discountedPrice")
       .populate("items.sellerId", "shopName")
       .sort(sortObj)
       .skip(skip)
@@ -593,7 +681,7 @@ export const getAllOrders = async (req, res) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      orders
+      orders: orders.map(o => cleanOrderResponse(o))
     });
   } catch (error) {
     return sendErrorResponse(res, 500, error.message);
@@ -628,7 +716,7 @@ export const getSellerOrders = async (req, res) => {
 
     const orders = await Order.find(query)
       .populate("userId", "name email phone")
-      .populate("items.product", "productName productImage price")
+      .populate("items.product", "title image price discountedPrice")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -641,6 +729,11 @@ export const getSellerOrders = async (req, res) => {
         String(item.sellerId) === String(sellerId) &&
         (!status || item.itemStatus === status)
       );
+
+      // Strip docType from products (.lean() bypasses toJSON transforms)
+      sellerItems.forEach(item => {
+        if (item.product?.docType) delete item.product.docType;
+      });
 
       const sellerSubtotal = sellerItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
       const sellerTotalDiscounted = sellerItems.reduce((acc, item) => acc + ((item.discountedPrice || item.price) * item.quantity), 0);
@@ -673,10 +766,6 @@ export const getSellerOrders = async (req, res) => {
   }
 };
 
-/**
- * Get Order Timeline
- * GET /order/:orderId/timeline
- */
 export const getOrderTimeline = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -684,9 +773,11 @@ export const getOrderTimeline = async (req, res) => {
 
     if (!userId) return sendBadRequestResponse(res, "User ID required");
 
-    let order = await Order.findOne({ orderId, userId });
+    let order = await Order.findOne({ orderId, userId })
+      .populate("items.product", "title image price discountedPrice");
     if (!order && mongoose.Types.ObjectId.isValid(orderId)) {
-      order = await Order.findOne({ _id: orderId, userId });
+      order = await Order.findOne({ _id: orderId, userId })
+        .populate("items.product", "title image price discountedPrice");
     }
 
     if (!order) {
@@ -698,7 +789,6 @@ export const getOrderTimeline = async (req, res) => {
     const formatTimelineDate = (timestamp) => {
       if (!timestamp) return "";
       const date = new Date(timestamp);
-
       const mon = date.toLocaleString('en-US', { month: 'short' });
       const dd = String(date.getDate()).padStart(2, '0');
       const yyyy = date.getFullYear();
@@ -708,7 +798,6 @@ export const getOrderTimeline = async (req, res) => {
       hh = hh % 12;
       hh = hh ? hh : 12;
       const strTime = String(hh).padStart(2, '0') + ':' + min + ' ' + ampm;
-
       return `${mon} ${dd} ${yyyy} ${strTime}`;
     };
 
@@ -719,23 +808,32 @@ export const getOrderTimeline = async (req, res) => {
       { key: 'delivered', label: 'Delivered', msg: 'Your order has been delivered successfully.' }
     ];
 
-    let currentStatus = order.orderStatus.current;
+    // Determine which history and status to use
+    let currentStatus;
+    let historySource;
 
     if (itemId) {
       const item = order.items.find(i => String(i._id) === String(itemId));
-      if (item) {
-        currentStatus = item.itemStatus;
-      }
+      if (!item) return sendNotFoundResponse(res, "Item not found in this order");
+
+      currentStatus = item.itemStatus;
+      // Use item's own statusHistory if available, fallback to global
+      historySource = (item.statusHistory && item.statusHistory.length > 0)
+        ? item.statusHistory
+        : order.orderStatus.history;
+    } else {
+      currentStatus = order.orderStatus.current;
+      historySource = order.orderStatus.history || [];
     }
 
-    const actualHistory = order.orderStatus.history || [];
-    let finalTimeline = [];
-
     const getHistoryEntry = (statusKey) => {
-      return actualHistory.filter(h => h.status === statusKey).pop();
+      return historySource.filter(h => h.status === statusKey).pop();
     };
 
+    let finalTimeline = [];
+
     if (['cancelled', 'returned'].includes(currentStatus)) {
+      // Show completed steps + the cancel/return step
       for (const step of validSteps) {
         const entry = getHistoryEntry(step.key);
         if (entry) {
@@ -745,19 +843,21 @@ export const getOrderTimeline = async (req, res) => {
             message: step.msg,
             timestamp: entry.timestamp,
             displayDate: formatTimelineDate(entry.timestamp),
+            notes: entry.notes || "",
             isCompleted: true,
             isCurrent: false
           });
         }
       }
-      const specialStatus = currentStatus;
-      const specialEntry = getHistoryEntry(specialStatus);
+
+      const specialEntry = getHistoryEntry(currentStatus);
       finalTimeline.push({
-        status: specialStatus.charAt(0).toUpperCase() + specialStatus.slice(1),
-        statusKey: specialStatus,
-        message: specialStatus === 'cancelled' ? 'Your order was cancelled.' : 'Your order was returned.',
+        status: currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1),
+        statusKey: currentStatus,
+        message: currentStatus === 'cancelled' ? 'This item/order was cancelled.' : 'This item/order was returned.',
         timestamp: specialEntry ? specialEntry.timestamp : new Date(),
         displayDate: formatTimelineDate(specialEntry ? specialEntry.timestamp : new Date()),
+        notes: specialEntry?.notes || "",
         isCompleted: true,
         isCurrent: true
       });
@@ -773,14 +873,12 @@ export const getOrderTimeline = async (req, res) => {
       finalTimeline = validSteps.map((step, index) => {
         const isCompleted = index <= currentIndex;
         const isCurrent = index === currentIndex;
-
         let entry = getHistoryEntry(step.key);
         let validTimestamp = entry ? entry.timestamp : null;
 
         if (isCompleted && !validTimestamp) {
           for (let i = index + 1; i < validSteps.length; i++) {
-            const nextKey = validSteps[i].key;
-            const nextEntry = getHistoryEntry(nextKey);
+            const nextEntry = getHistoryEntry(validSteps[i].key);
             if (nextEntry) {
               validTimestamp = nextEntry.timestamp;
               break;
@@ -794,19 +892,33 @@ export const getOrderTimeline = async (req, res) => {
           message: step.msg,
           timestamp: validTimestamp,
           displayDate: formatTimelineDate(validTimestamp),
-          isCompleted: isCompleted,
-          isCurrent: isCurrent
+          notes: entry?.notes || "",
+          isCompleted,
+          isCurrent
         };
       });
     }
 
+    // All items summary
+    const itemsSummary = order.items.map(item => ({
+      itemId: item._id,
+      product: item.product,
+      quantity: item.quantity,
+      price: item.price,
+      discountedPrice: item.discountedPrice,
+      itemStatus: item.itemStatus,
+      deliveredAt: item.deliveredAt ? formatTimelineDate(item.deliveredAt) : null,
+      cancelledAt: item.cancelledAt ? formatTimelineDate(item.cancelledAt) : null
+    }));
+
     const responseData = {
       orderId: order.orderId,
-      currentStatus: currentStatus,
+      currentStatus,
       paymentMethod: order.paymentInfo?.method,
       paymentStatus: order.paymentInfo?.status,
       estimatedDeliveryDate: formatTimelineDate(order.estimatedDeliveryDate),
-      timeline: finalTimeline
+      timeline: finalTimeline,
+      items: itemsSummary
     };
 
     if (itemId) responseData.itemId = itemId;

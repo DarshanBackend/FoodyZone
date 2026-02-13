@@ -14,10 +14,6 @@ const wishlistSchema = new mongoose.Schema(
           ref: "product",
           required: true,
         },
-        packSizeId: {
-          type: mongoose.Schema.Types.ObjectId,
-          required: false,
-        },
       },
     ],
   },

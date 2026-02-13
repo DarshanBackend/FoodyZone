@@ -2,7 +2,6 @@ import mongoose from "mongoose";
 
 const reviewSchema = new mongoose.Schema({
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'product', required: true },
-    packSizeId: { type: mongoose.Schema.Types.ObjectId, required: false },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
 
     overallRating: {

@@ -30,9 +30,9 @@ export const addToCart = async (req, res) => {
     }
 
     price = product.price || 0;
-    if (product.discount) {
-      discountedPrice = Math.round(price * (1 - product.discount / 100));
-    }
+    discountedPrice = (product.discountedPrice && product.discountedPrice < price)
+      ? product.discountedPrice
+      : null;
 
     if (stock < quantity) {
       return sendBadRequestResponse(res, `Insufficient stock. Available: ${stock}`);
