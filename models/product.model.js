@@ -31,7 +31,10 @@ const baseProductSchema = new mongoose.Schema({
     inStock: { type: Boolean, default: true },
 
     isActive: { type: Boolean, default: true },
-    rating: { type: Number, default: 0 }
+    rating: {
+        average: { type: Number, default: 0 },
+        totalReviews: { type: Number, default: 0 }
+    }
 
 }, {
     timestamps: true,
@@ -54,21 +57,18 @@ const GroceryProduct = ProductModel.discriminator('grocery', new mongoose.Schema
         ref: "brand",
         default: null
     },
-    discountedPrice: { type: Number, default: 0 }, // Specific to Grocery
+    discountedPrice: { type: Number, default: 0 },
     manufacturer: { type: String, default: null },
     soldBy: { type: String, default: null },
     netQty: { type: String, default: null },
-    productType: { type: String, default: null }, // Renamed from typeOfProduct
+    productType: { type: String, default: null },
     disclaimer: { type: String, default: null },
     customerCareDetails: { type: String, default: null },
-    // User explicitly said "image nathi" for grocery, so no image field here.
 }));
 
 // 3. Food Delivery Product Schema
 const FoodDeliveryProduct = ProductModel.discriminator('delivery', new mongoose.Schema({
     // Food specific fields
-    // gImage removed
-
     flavor: [{ type: String }],
     isVeg: { type: Boolean, default: true },
 

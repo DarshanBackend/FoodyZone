@@ -1,8 +1,10 @@
 import mongoose from "mongoose";
 import Product, { GroceryProduct, FoodDeliveryProduct } from "../models/product.model.js";
+import Order from "../models/order.model.js";
 import sellerModel from "../models/seller.model.js";
 import CategoryModel from "../models/category.model.js";
 import brandModel from "../models/brand.model.js";
+import restaurantModel from "../models/restaurant.model.js";
 import { sendBadRequestResponse, sendErrorResponse, sendNotFoundResponse, sendSuccessResponse } from "../utils/response.utils.js";
 import { deleteFromS3, updateS3, uploadToS3 } from "../utils/s3Service.js";
 
@@ -627,5 +629,450 @@ export const getProductFilters = async (req, res) => {
     });
   } catch (error) {
     return sendErrorResponse(res, 500, "Error while getProductFilters", error);
+  }
+};
+
+export const getDealOfTheDay = async (req, res) => {
+  try {
+    const { category } = req.query; // 'grocery' or 'food delivery'
+
+    // Determine the docType based on input
+    let docType = null;
+    if (category === 'grocery') {
+      docType = 'grocery';
+    } else if (category === 'food delivery') {
+      docType = 'delivery';
+    } else {
+      return sendBadRequestResponse(res, "Invalid or missing category. Use 'grocery' or 'food delivery'.");
+    }
+
+    // Get Today's Date Range
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Find orders created today
+    const ordersToday = await Order.find({
+      createdAt: { $gte: startOfDay, $lte: endOfDay }
+    }).select('items');
+
+    if (!ordersToday.length) {
+      return sendSuccessResponse(res, "No products ordered today", []);
+    }
+
+    // Extract Product IDs
+    let productIds = [];
+    ordersToday.forEach(order => {
+      order.items.forEach(item => {
+        if (item.product) {
+          productIds.push(item.product);
+        }
+      });
+    });
+
+    // Remove duplicates
+    productIds = [...new Set(productIds.map(id => id.toString()))];
+
+    // Find Products matching docType
+    const products = await Product.find({
+      _id: { $in: productIds },
+      docType: docType
+    })
+      .populate('category', 'name image')
+      .populate('sellerId', 'shopName') // Optional: add more details if needed
+      .lean();
+
+    return sendSuccessResponse(res, "Ordered products fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getFreshFruits = async (req, res) => {
+  try {
+    const category = await CategoryModel.findOne({ name: "Fresh Fruits" });
+
+    if (!category) {
+      return sendNotFoundResponse(res, "Category 'Fresh Fruits' not found");
+    }
+
+    const products = await Product.find({
+      category: category._id,
+      isActive: true,
+      docType: 'grocery'
+    })
+      .populate('category', 'name image')
+      .populate('sellerId', 'shopName')
+      .sort({ createdAt: -1 });
+
+    if (!products || products.length === 0) {
+      return sendSuccessResponse(res, "No products found in Fresh Fruits", []);
+    }
+
+    return sendSuccessResponse(res, "Fresh Fruits fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getBestOffers = async (req, res) => {
+  try {
+    const products = await Product.aggregate([
+      {
+        $match: {
+          isActive: true,
+          docType: 'grocery',
+          price: { $gt: 0 },
+          discountedPrice: { $gt: 0 }
+        }
+      },
+      {
+        $addFields: {
+          discountPercentage: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: [{ $subtract: ["$price", "$discountedPrice"] }, "$price"] },
+                  100
+                ]
+              },
+              0
+            ]
+          }
+        }
+      },
+      {
+        $match: {
+          discountPercentage: { $gt: 0 }
+        }
+      },
+      {
+        $sort: { discountPercentage: -1 }
+      },
+      {
+        $limit: 20 // Reasonable limit for "top deals"
+      }
+    ]);
+
+    // Populate the results manually as aggregate returns POJOs
+    await Product.populate(products, [
+      { path: 'category', select: 'name image' },
+      { path: 'sellerId', select: 'shopName' }
+    ]);
+
+    if (!products || products.length === 0) {
+      return sendSuccessResponse(res, "No discounted grocery products found", []);
+    }
+
+    return sendSuccessResponse(res, "Discounted grocery products fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getProductsSoldInEvening = async (req, res) => {
+  try {
+    const startOfEvening = new Date();
+    startOfEvening.setHours(17, 0, 0, 0); // 5 PM
+
+    const endOfEvening = new Date();
+    endOfEvening.setHours(21, 0, 0, 0); // 9 PM
+
+    // Find orders created in the evening with completed payment
+    const orders = await Order.find({
+      createdAt: { $gte: startOfEvening, $lt: endOfEvening },
+      "paymentInfo.status": "completed"
+    }).select('items');
+
+    if (!orders || orders.length === 0) {
+      return sendSuccessResponse(res, "No products sold this evening", []);
+    }
+
+    // Extract Product IDs
+    let productIds = [];
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        if (item.product) {
+          productIds.push(item.product);
+        }
+      });
+    });
+
+    // Remove duplicates
+    productIds = [...new Set(productIds.map(id => id.toString()))];
+
+    // Find Products using aggregation to calculate discount percentage and filter for grocery
+    const products = await Product.aggregate([
+      {
+        $match: {
+          _id: { $in: productIds.map(id => new mongoose.Types.ObjectId(id)) },
+          isActive: true,
+          docType: 'grocery'
+        }
+      },
+      {
+        $addFields: {
+          discountPercentage: {
+            $cond: {
+              if: { $and: [{ $gt: ["$price", 0] }, { $gt: ["$discountedPrice", 0] }] },
+              then: {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: [{ $subtract: ["$price", "$discountedPrice"] }, "$price"] },
+                      100
+                    ]
+                  },
+                  0
+                ]
+              },
+              else: 0
+            }
+          }
+        }
+      },
+      {
+        $sort: { discountPercentage: -1 }
+      }
+    ]);
+
+    // Populate the results manually
+    await Product.populate(products, [
+      { path: 'category', select: 'name image' },
+      { path: 'sellerId', select: 'shopName' }
+    ]);
+
+    return sendSuccessResponse(res, "Evening sold grocery products fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getPopularRestaurants = async (req, res) => {
+  try {
+    const popularRestaurants = await Order.aggregate([
+      { $unwind: "$items" },
+
+      {
+        $lookup: {
+          from: "products",
+          localField: "items.product",
+          foreignField: "_id",
+          as: "productDetails"
+        }
+      },
+
+      { $unwind: "$productDetails" },
+
+      {
+        $match: {
+          "productDetails.docType": "delivery"
+        }
+      },
+
+      {
+        $group: {
+          _id: "$productDetails.restaurantId",
+          orderCount: { $sum: 1 }
+        }
+      },
+
+      { $sort: { orderCount: -1 } },
+
+      { $limit: 10 },
+
+      {
+        $lookup: {
+          from: "restaurants",
+          localField: "_id",
+          foreignField: "_id",
+          as: "restaurantInfo"
+        }
+      },
+
+      { $unwind: "$restaurantInfo" },
+
+      {
+        $project: {
+          _id: 1,
+          orderCount: 1,
+          title: "$restaurantInfo.title",
+          image: "$restaurantInfo.image",
+          gImage: "$restaurantInfo.gImage",
+          description: "$restaurantInfo.description",
+          rating: "$restaurantInfo.rating",
+          time: "$restaurantInfo.time",
+          delivery: "$restaurantInfo.delivery",
+          off: "$restaurantInfo.off"
+        }
+      }
+    ]);
+
+    if (!popularRestaurants || popularRestaurants.length === 0) {
+      return sendSuccessResponse(res, "No popular restaurants found yet", []);
+    }
+
+    return sendSuccessResponse(res, "Popular restaurants fetched successfully", popularRestaurants);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getFilteredFoodProducts = async (req, res) => {
+  try {
+    const { sort, isVeg, rating, fastDelivery, offer } = req.query;
+
+    const pipeline = [
+      {
+        $match: {
+          docType: 'delivery',
+          isActive: true
+        }
+      }
+    ];
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: "restaurants",
+          localField: "restaurantId",
+          foreignField: "_id",
+          as: "restaurantDetails"
+        }
+      },
+      { $unwind: "$restaurantDetails" }
+    );
+
+    // 1. Veg/Non-Veg Filter
+    if (isVeg === 'true') {
+      pipeline.push({ $match: { isVeg: true } });
+    } else if (isVeg === 'false') {
+      pipeline.push({ $match: { isVeg: false } });
+    }
+
+    // 2. Dynamic Rating Filter
+    if (rating) {
+      const ratingValue = Number(rating);
+      if (!isNaN(ratingValue)) {
+        pipeline.push({
+          $match: {
+            "rating.average": { $gte: ratingValue }
+          }
+        });
+      }
+    }
+
+    // 3. Fast Delivery Filter
+    if (fastDelivery === 'true') {
+      pipeline.push({
+        $match: {
+          "restaurantDetails.time": { $regex: /^[1-3][0-9]|4[0-4]/ } // Matches 10-44 roughly
+        }
+      });
+    }
+
+    // --- Sorting ---
+
+    pipeline.push({
+      $addFields: {
+        discountPercentage: {
+          $cond: {
+            if: { $and: [{ $gt: ["$price", 0] }, { $gt: ["$discountedPrice", 0] }] },
+            then: {
+              $round: [
+                {
+                  $multiply: [
+                    { $divide: [{ $subtract: ["$price", "$discountedPrice"] }, "$price"] },
+                    100
+                  ]
+                },
+                0
+              ]
+            },
+            else: 0
+          }
+        }
+      }
+    });
+
+    // 4. Offer Filter (Show products with discount > 0)
+    if (offer === 'true') {
+      pipeline.push({
+        $match: {
+          discountPercentage: { $gt: 0 }
+        }
+      });
+    }
+
+    let sortStage = {};
+
+    if (sort === 'price_low_high') {
+      sortStage = { price: 1 };
+    } else if (sort === 'price_high_low') {
+      sortStage = { price: -1 };
+    } else if (sort === 'rating') {
+      sortStage = { "rating.average": -1 };
+    } else if (sort === 'discount') {
+      sortStage = { discountPercentage: -1 };
+    } else {
+      // Default Sort (e.g., newest first)
+      sortStage = { createdAt: -1 };
+    }
+
+    pipeline.push({ $sort: sortStage });
+
+    // Populate Category (lookup)
+    pipeline.push(
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "categoryDetails"
+        }
+      },
+      { $unwind: { path: "$categoryDetails", preserveNullAndEmptyArrays: true } }
+    );
+
+    // Final Projection to structure the response
+    pipeline.push({
+      $project: {
+        title: 1,
+        description: 1,
+        price: 1,
+        discountedPrice: 1,
+        discountPercentage: 1,
+        rating: 1,
+        isVeg: 1,
+        image: 1,
+        // Category Details
+        category: {
+          name: "$categoryDetails.name",
+          image: "$categoryDetails.image"
+        },
+        // Restaurant Details
+        restaurantId: {
+          _id: "$restaurantDetails._id",
+          title: "$restaurantDetails.title",
+          image: "$restaurantDetails.image",
+          time: "$restaurantDetails.time",
+          rating: "$restaurantDetails.rating"
+        }
+      }
+    });
+
+    const products = await Product.aggregate(pipeline);
+
+    return sendSuccessResponse(res, "Filtered products fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
   }
 };

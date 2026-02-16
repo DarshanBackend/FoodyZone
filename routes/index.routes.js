@@ -8,14 +8,15 @@ import { upload } from '../helper/imageUplode.js';
 import { createNewCategory, deleteCategory, getAllCategory, getCategoryById, searchCategory, updateCategory } from '../controllers/category.controller.js';
 import { createBrand, deleteBrand, getAllBrands, getBrandsById, getProductsByBrandId, getSellerBrands, searchBrand, updateBrandById } from '../controllers/brand.controller.js';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../controllers/wishlist.controller.js';
-import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters } from '../controllers/product.controller.js';
+import { addRestaurantReview, deleteRestaurantReview, getRestaurantReviews, updateRestaurantReview } from '../controllers/restaurantReview.controller.js';
+import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters, getDealOfTheDay, getFreshFruits, getBestOffers, getProductsSoldInEvening, getPopularRestaurants, getFilteredFoodProducts } from '../controllers/product.controller.js';
 import cartController from '../controllers/cart.controller.js';
 import orderController from '../controllers/order.controller.js';
 import paymentController from '../controllers/payment.controller.js';
 import { applyCouponController, createCoupon, deleteCoupon, getAllCoupon, getAllCouponAdmin, getCouponById, removeCouponController, updateCoupon } from '../controllers/coupon.controller.js';
 import { createHomeBanner, deleteBannerByName, getAllBanners, getHomeBanners, updateBannerByName } from '../controllers/banner.controller.js';
 import { bestSeller, getFiltteredProducts, grabNowDeals, newArrival, newProducts, trendingDeals } from '../controllers/home.controller.js';
-import { checkUserReview, createReview, deleteReview, getProductReviews, updateReview } from '../controllers/review.controller.js';
+import { checkUserReview, createReview, deleteReview, getProductReviews, updateReview, likeReview, dislikeReview } from '../controllers/review.controller.js';
 import { createOfferBanner, deleteOfferBanner, getAllOfferBanners, updateOfferBanner } from '../controllers/offer.controller.js';
 import { createRestaurant, deleteRestaurant, getAllRestaurants, getRestaurantById, searchRestaurants, updateRestaurant } from '../controllers/restaurant.controller.js';
 
@@ -118,6 +119,12 @@ indexRoutes.get("/getProductByCategory/:categoryId", getProductByCategory)
 indexRoutes.get("/getProductsByRestaurantId/:restaurantId", getProductsByRestaurantId)
 indexRoutes.get("/productFilters", getProductFilters);
 indexRoutes.get("/searchProduct", searchProducts)
+indexRoutes.get("/getDealOfTheDay", getDealOfTheDay);
+indexRoutes.get("/getFreshFruits", getFreshFruits);
+indexRoutes.get("/getBestOffers", getBestOffers);
+indexRoutes.get("/getProductsSoldInEvening", getProductsSoldInEvening);
+indexRoutes.get("/getPopularRestaurants", getPopularRestaurants);
+indexRoutes.get("/getFilteredFoodProducts", getFilteredFoodProducts);
 
 // filtter producrts
 indexRoutes.get("/filter", getFiltteredProducts)
@@ -178,6 +185,15 @@ indexRoutes.patch('/updateReview/:reviewId', UserAuth, updateReview);
 indexRoutes.delete('/deleteReview/:reviewId', UserAuth, deleteReview);
 indexRoutes.get('/getProductReviews/:productId', getProductReviews);
 indexRoutes.get('/checkUserReview/:productId', UserAuth, checkUserReview);
+indexRoutes.post('/likeReview/:reviewId', UserAuth, likeReview);
+indexRoutes.post('/dislikeReview/:reviewId', UserAuth, dislikeReview);
+
+//restaurant review routes
+
+indexRoutes.post('/addRestaurantReview', UserAuth, addRestaurantReview);
+indexRoutes.get('/getRestaurantReviews/:restaurantId', getRestaurantReviews);
+indexRoutes.patch('/updateRestaurantReview/:reviewId', UserAuth, updateRestaurantReview);
+indexRoutes.delete('/deleteRestaurantReview/:reviewId', UserAuth, deleteRestaurantReview);
 
 //home page api's
 indexRoutes.post("/heroBanner", adminAuth, upload.array("banners"), createHomeBanner)

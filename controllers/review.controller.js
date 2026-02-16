@@ -56,12 +56,7 @@ export const createReview = async (req, res) => {
             return sendBadRequestResponse(res, "Invalid product ID!");
         }
 
-        // Check if user already reviewed this product
-        const existingReview = await Review.findOne({
-            productId,
-            userId
-        });
-
+        const existingReview = await Review.findOne({ productId, userId });
         if (existingReview) {
             return sendBadRequestResponse(res, "You have already reviewed this product!");
         }
@@ -112,7 +107,6 @@ export const updateReview = async (req, res) => {
         if (req.body.comment !== undefined) review.comment = req.body.comment;
 
         await review.save();
-
         await updateProductRating(review.productId);
 
         return sendSuccessResponse(res, "✅ Review updated successfully", review);
@@ -127,17 +121,13 @@ export const deleteReview = async (req, res) => {
         const { reviewId } = req.params;
         const userId = req.user?._id;
 
-        if (!mongoose.Types.ObjectId.isValid(reviewId))
-            return sendBadRequestResponse(res, "Invalid review ID!");
-        if (!userId || !mongoose.Types.ObjectId.isValid(userId))
-            return sendBadRequestResponse(res, "Invalid user ID!");
+        if (!mongoose.Types.ObjectId.isValid(reviewId)) return sendBadRequestResponse(res, "Invalid review ID!");
+        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) return sendBadRequestResponse(res, "Invalid user ID!");
 
         const review = await Review.findOne({ _id: reviewId, userId });
-        if (!review)
-            return sendNotFoundResponse(res, "Review not found or unauthorized!");
+        if (!review) return sendNotFoundResponse(res, "Review not found or unauthorized!");
 
         await Review.findByIdAndDelete(reviewId);
-
         await updateProductRating(review.productId);
 
         return sendSuccessResponse(res, "✅ Review deleted successfully!");
@@ -158,25 +148,20 @@ export const getProductReviews = async (req, res) => {
         }
 
         const query = { productId: new mongoose.Types.ObjectId(productId) };
-        if (rating) {
-            query.overallRating = Number(rating);
-        }
+        if (rating) query.overallRating = Number(rating);
 
-        // 1. Get filtered reviews with pagination
         const skip = (Number(page) - 1) * Number(limit);
         const sortOptions = sort === "latest" ? { createdAt: -1 } : { overallRating: -1 };
 
         const reviewsPromise = Review.find(query)
-            .populate("userId", "name avatar")
+            .populate("userId", "fullName avatar")
             .sort(sortOptions)
             .skip(skip)
             .limit(Number(limit))
             .lean();
 
-        // 2. Get Total count for pagination
         const totalPromise = Review.countDocuments(query);
 
-        // 3. Get Stats (Average & Distribution) - UNFILTERED (always shows global stats)
         const statsPromise = Review.aggregate([
             { $match: { productId: new mongoose.Types.ObjectId(productId) } },
             {
@@ -184,20 +169,13 @@ export const getProductReviews = async (req, res) => {
                     _id: null,
                     averageRating: { $avg: "$overallRating" },
                     totalReviews: { $sum: 1 },
-                    distribution: {
-                        $push: "$overallRating"
-                    }
+                    distribution: { $push: "$overallRating" }
                 }
             }
         ]);
 
-        const [reviews, totalReviews, statsResult] = await Promise.all([
-            reviewsPromise,
-            totalPromise,
-            statsPromise
-        ]);
+        const [reviews, totalReviews, statsResult] = await Promise.all([reviewsPromise, totalPromise, statsPromise]);
 
-        // Process Stats
         const stats = statsResult[0] || { averageRating: 0, totalReviews: 0, distribution: [] };
 
         const distributionCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
@@ -208,11 +186,10 @@ export const getProductReviews = async (req, res) => {
             });
         }
 
-        // Check if current logged-in user has reviewed
         let userReview = null;
         if (req.user?._id) {
             const myReview = await Review.findOne({ productId, userId: req.user._id })
-                .populate("userId", "name avatar")
+                .populate("userId", "fullName avatar")
                 .lean();
 
             if (myReview) {
@@ -223,9 +200,13 @@ export const getProductReviews = async (req, res) => {
                     comment: myReview.comment,
                     createdAt: myReview.createdAt,
                     user: {
-                        name: myReview.userId?.name || "Anonymous",
+                        name: myReview.userId?.fullName || "Anonymous",
                         avatar: myReview.userId?.avatar || null
-                    }
+                    },
+                    likesCount: myReview.likes ? myReview.likes.length : 0,
+                    dislikesCount: myReview.dislikes ? myReview.dislikes.length : 0,
+                    isLiked: req.user?._id && myReview.likes ? myReview.likes.map(id => id.toString()).includes(req.user._id.toString()) : false,
+                    isDisliked: req.user?._id && myReview.dislikes ? myReview.dislikes.map(id => id.toString()).includes(req.user._id.toString()) : false
                 };
             }
         }
@@ -237,17 +218,21 @@ export const getProductReviews = async (req, res) => {
             comment: r.comment,
             createdAt: r.createdAt,
             user: {
-                name: r.userId?.name || "Anonymous",
+                name: r.userId?.fullName || "Anonymous",
                 avatar: r.userId?.avatar || null
-            }
+            },
+            likesCount: r.likes ? r.likes.length : 0,
+            dislikesCount: r.dislikes ? r.dislikes.length : 0,
+            isLiked: req.user?._id && r.likes ? r.likes.map(id => id.toString()).includes(req.user._id.toString()) : false,
+            isDisliked: req.user?._id && r.dislikes ? r.dislikes.map(id => id.toString()).includes(req.user._id.toString()) : false
         }));
 
         const response = {
             summary: {
                 average: stats.averageRating ? Number(stats.averageRating.toFixed(1)) : 0,
-                totalGlobalReviews: stats.totalReviews, // Total reviews irrespective of filter
+                totalGlobalReviews: stats.totalReviews,
                 distribution: distributionCount,
-                filteredTotal: totalReviews // Total reviews matching current filter
+                filteredTotal: totalReviews
             },
             reviews: formattedReviews,
             userReview,
@@ -283,7 +268,7 @@ export const checkUserReview = async (req, res) => {
         }
 
         const review = await Review.findOne({ productId, userId })
-            .populate("userId", "name avatar")
+            .populate("userId", "fullName avatar")
             .lean();
 
         if (review) {
@@ -296,19 +281,74 @@ export const checkUserReview = async (req, res) => {
                     comment: review.comment,
                     createdAt: review.createdAt,
                     user: {
-                        name: review.userId?.name || "Anonymous",
+                        name: review.userId?.fullName || "Anonymous",
                         avatar: review.userId?.avatar || null
-                    }
+                    },
+                    likesCount: review.likes ? review.likes.length : 0,
+                    dislikesCount: review.dislikes ? review.dislikes.length : 0,
+                    isLiked: userId && review.likes ? review.likes.map(id => id.toString()).includes(userId.toString()) : false,
+                    isDisliked: userId && review.dislikes ? review.dislikes.map(id => id.toString()).includes(userId.toString()) : false
                 }
             });
         }
 
-        return sendSuccessResponse(res, "No review found", {
-            hasReviewed: false,
-            review: null
-        });
+        return sendSuccessResponse(res, "No review found", { hasReviewed: false, review: null });
 
     } catch (error) {
         return ThrowError(res, 500, error.message);
+    }
+};
+
+export const likeReview = async (req, res) => {
+    try {
+        const { reviewId } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(reviewId)) return sendBadRequestResponse(res, "Invalid review ID!");
+
+        const review = await Review.findById(reviewId);
+        if (!review) return sendNotFoundResponse(res, "Review not found!");
+
+        if (review.dislikes.includes(userId)) return sendBadRequestResponse(res, "You cannot like a review you already disliked!");
+
+        if (review.likes.includes(userId)) review.likes.pull(userId);
+        else review.likes.push(userId);
+
+        await review.save();
+
+        return sendSuccessResponse(res, "Review like updated successfully!", {
+            likes: review.likes.length,
+            dislikes: review.dislikes.length
+        });
+
+    } catch (err) {
+        return ThrowError(res, 500, err.message);
+    }
+};
+
+export const dislikeReview = async (req, res) => {
+    try {
+        const { reviewId } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(reviewId)) return sendBadRequestResponse(res, "Invalid review ID!");
+
+        const review = await Review.findById(reviewId);
+        if (!review) return sendNotFoundResponse(res, "Review not found!");
+
+        if (review.likes.includes(userId)) return sendBadRequestResponse(res, "You cannot dislike a review you already liked!");
+
+        if (review.dislikes.includes(userId)) review.dislikes.pull(userId);
+        else review.dislikes.push(userId);
+
+        await review.save();
+
+        return sendSuccessResponse(res, "Review dislike updated successfully!", {
+            likes: review.likes.length,
+            dislikes: review.dislikes.length
+        });
+
+    } catch (err) {
+        return ThrowError(res, 500, err.message);
     }
 };

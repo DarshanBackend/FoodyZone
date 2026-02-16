@@ -4,15 +4,18 @@ import productModel from "../models/product.model.js";
 
 export const createOfferBanner = async (req, res) => {
   try {
-    const { title, productId } = req.body;
+    const { title, productId, categoryId } = req.body;
 
-    const product = await productModel.findById(productId);
-    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+    if (productId) {
+      const product = await productModel.findById(productId);
+      if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+    }
 
     const image = await uploadToS3(req.file, "offerBanners");
     if (!image) return res.status(400).json({ success: false, message: "Image required" });
 
-    const offer = await Offer.create({ title, productId, image });
+    const createdOffer = await Offer.create({ title, productId, categoryId, image });
+    const offer = await createdOffer.populate("productId categoryId");
 
     return res.status(201).json({ success: true, message: "Offer banner created", data: offer });
   } catch (error) {
@@ -22,8 +25,38 @@ export const createOfferBanner = async (req, res) => {
 
 export const getAllOfferBanners = async (req, res) => {
   try {
-    const data = await Offer.find({})
-    return res.status(200).json({ success: true, message: "All offer banners", data });
+    const { categoryId } = req.query;
+    const filter = {};
+
+    if (categoryId) {
+      filter.categoryId = categoryId;
+    }
+
+    const offers = await Offer.find(filter).populate("productId categoryId");
+
+    // If specific category is requested, return the list directly
+    if (categoryId) {
+      return res.status(200).json({ success: true, message: "Offer banners", data: offers });
+    }
+
+    const foodDelivery = [];
+    const grocery = [];
+
+    offers.forEach((offer) => {
+      if (offer.productId) {
+        if (offer.productId.docType === "delivery") {
+          foodDelivery.push(offer);
+        } else if (offer.productId.docType === "grocery") {
+          grocery.push(offer);
+        }
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "All offer banners",
+      data: { foodDelivery, grocery }
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Get offer banners error", error });
   }
@@ -51,7 +84,7 @@ export const deleteOfferBanner = async (req, res) => {
 export const updateOfferBanner = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, productId } = req.body;
+    const { title, productId, categoryId } = req.body;
 
     const banner = await Offer.findById(id);
     if (!banner) return res.status(404).json({ success: false, message: "Offer banner not found" });
@@ -65,9 +98,9 @@ export const updateOfferBanner = async (req, res) => {
 
     const updated = await Offer.findByIdAndUpdate(
       id,
-      { title, productId, image },
+      { title, productId, categoryId, image },
       { new: true }
-    );
+    ).populate("productId categoryId");
 
     return res.status(200).json({ success: true, message: "Offer banner updated", data: updated });
   } catch (error) {

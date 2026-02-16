@@ -13,7 +13,9 @@ const reviewSchema = new mongoose.Schema({
     },
 
     comment: { type: String, trim: true, maxlength: 1000, default: "" },
-}, { timestamps: true });
+    likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'user' }],
+    dislikes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'user' }]
+}, { timestamps: true, versionKey: false });
 
 reviewSchema.index({ productId: 1, userId: 1 }, { unique: true }); // One review per product per user
 
