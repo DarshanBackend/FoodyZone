@@ -1,5 +1,5 @@
 import express from 'express';
-import { addNewAddress, createUser, deleteUser, deleteUserAddress, forgotPassword, getAllCountry, getAllnewUser, getAllUserAddress, getUser, getUserAddressById, getUserProfile, resetPassword, searchAddress, selectCountry, selectUserAddress, socialLogin, updateUserAddress, userLogin, userPasswordChangeController, userUpdateProfile, verifyOtp } from '../controllers/user.controller.js';
+import { addNewAddress, createUser, deleteUser, deleteUserAddress, forgotPassword, getAllCountry, getAllnewUser, getAllUserAddress, getUser, getUserAddressById, getUserProfile, resetPassword, searchAddress, selectCountry, selectUserAddress, socialLogin, updateFcmToken, updateUserAddress, userLogin, userPasswordChangeController, userUpdateProfile, verifyOtp } from '../controllers/user.controller.js';
 import { adminAuth, sellerAndAdminAuth, sellerAuth, UserAuth } from '../middleware/auth.middleware.js';
 import { createAdminController, getAllSeller, getSeller, newSellerController, sellerForgetPasswordController, sellerLoginController, sellerPasswordChangeController, sellerPasswordResetController, sellerPickUpAddressSetController, sellerVerifyForgetOtpController, updateProfile } from '../controllers/seller.controller.js';
 import { sendResponse, sendSuccessResponse, sendBadRequestResponse, sendNotFoundResponse, sendErrorResponse } from '../utils/response.utils.js';
@@ -13,6 +13,7 @@ import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFo
 import cartController from '../controllers/cart.controller.js';
 import orderController from '../controllers/order.controller.js';
 import paymentController from '../controllers/payment.controller.js';
+import { createNotification, getAllNotifications, getMyNotifications, getNotificationById, markAsRead, updateNotification, deleteNotification, deleteMyNotification } from '../controllers/notification.controller.js';
 import { applyCouponController, createCoupon, deleteCoupon, getAllCoupon, getAllCouponAdmin, getCouponById, removeCouponController, updateCoupon } from '../controllers/coupon.controller.js';
 import { createHomeBanner, deleteBannerByName, getAllBanners, getHomeBanners, updateBannerByName } from '../controllers/banner.controller.js';
 import { bestSeller, getFiltteredProducts, grabNowDeals, newArrival, newProducts, trendingDeals } from '../controllers/home.controller.js';
@@ -118,7 +119,7 @@ indexRoutes.delete("/deleteFoodProduct/:id", sellerAndAdminAuth, deleteFoodProdu
 indexRoutes.get("/getProductByCategory/:categoryId", getProductByCategory)
 indexRoutes.get("/getProductsByRestaurantId/:restaurantId", getProductsByRestaurantId)
 indexRoutes.get("/productFilters", getProductFilters);
-indexRoutes.get("/searchProduct", searchProducts)
+indexRoutes.get("/searchProducts", searchProducts)
 indexRoutes.get("/getDealOfTheDay", getDealOfTheDay);
 indexRoutes.get("/getFreshFruits", getFreshFruits);
 indexRoutes.get("/getBestOffers", getBestOffers);
@@ -213,6 +214,19 @@ indexRoutes.post("/createOfferBanner", adminAuth, upload.single("offerImage"), c
 indexRoutes.get("/getAllOfferBanners", getAllOfferBanners)
 indexRoutes.put("/updateOfferBanner/:id", adminAuth, upload.single("offerImage"), updateOfferBanner)
 indexRoutes.delete("/deleteOfferBanner/:id", adminAuth, deleteOfferBanner)
+
+// Notifications
+indexRoutes.get("/notifications", UserAuth, getMyNotifications);
+indexRoutes.patch("/notifications/:id/read", UserAuth, markAsRead);
+indexRoutes.delete("/notifications/:id/user-delete", UserAuth, deleteMyNotification);
+indexRoutes.get("/getAllNotifications", adminAuth, getAllNotifications);
+indexRoutes.post("/create/notifications", adminAuth, upload.single("image"), createNotification);
+indexRoutes.get("/notifications/:id", UserAuth, getNotificationById);
+indexRoutes.put("/update/notifications/:id", adminAuth, upload.single("image"), updateNotification);
+indexRoutes.delete("/delete/notifications/:id", adminAuth, deleteNotification);
+
+// FCM
+indexRoutes.patch("/user/update-fcm-token", UserAuth, updateFcmToken);
 
 //aws
 indexRoutes.get("/list", async (req, res) => {

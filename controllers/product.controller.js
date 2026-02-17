@@ -515,30 +515,43 @@ export const deleteFoodProduct = async (req, res) => {
 
 export const searchProducts = async (req, res) => {
   try {
-    const { q, categoryId, type } = req.query
+    const { q, categoryId, type } = req.query;
 
-    const matchQuery = { isActive: true }
-    if (type) matchQuery.productType = type;
+    const matchQuery = { isActive: true };
 
-    if (q && q.trim()) {
-      matchQuery.$or = [
-        { title: { $regex: q.trim(), $options: "i" } },
-      ]
+    // Filter by docType if provided ('grocery' or 'delivery')
+    if (type === 'grocery' || type === 'delivery') {
+      matchQuery.docType = type;
     }
 
     if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
       matchQuery.category = categoryId;
     }
 
-    const products = await Product.find(matchQuery)
-      .sort({ createdAt: -1 })
-      .lean();
+    if (q && q.trim()) {
+      const searchRegex = { $regex: q.trim(), $options: "i" };
 
-    return sendSuccessResponse(res, "Products fetched successfully", products)
+      // Find categories that match the search term
+      const matchingCategories = await CategoryModel.find({ name: searchRegex }).distinct('_id');
+
+      matchQuery.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { category: { $in: matchingCategories } } // Include products belonging to matched categories
+      ];
+    }
+
+    const products = await Product.find(matchQuery)
+      .populate("category", "name image")
+      .populate("restaurantId", "title image rating time")
+      .populate("sellerId", "shopName")
+      .sort({ createdAt: -1 });
+
+    return sendSuccessResponse(res, "Products fetched successfully", products);
   } catch (error) {
-    return sendErrorResponse(res, 500, "error while searchProducts", error)
+    return sendErrorResponse(res, 500, "error while searchProducts", error);
   }
-}
+};
 
 export const getProductByCategory = async (req, res) => {
   try {
@@ -783,7 +796,6 @@ export const getProductsSoldInEvening = async (req, res) => {
     const endOfEvening = new Date();
     endOfEvening.setHours(21, 0, 0, 0); // 9 PM
 
-    // Find orders created in the evening with completed payment
     const orders = await Order.find({
       createdAt: { $gte: startOfEvening, $lt: endOfEvening },
       "paymentInfo.status": "completed"
@@ -938,6 +950,14 @@ export const getFilteredFoodProducts = async (req, res) => {
       }
     ];
 
+    // 1. Veg/Non-Veg Filter (Filter Products first)
+    if (isVeg === 'true') {
+      pipeline.push({ $match: { isVeg: true } });
+    } else if (isVeg === 'false') {
+      pipeline.push({ $match: { isVeg: false } });
+    }
+
+    // Lookup Restaurant Details
     pipeline.push(
       {
         $lookup: {
@@ -950,50 +970,16 @@ export const getFilteredFoodProducts = async (req, res) => {
       { $unwind: "$restaurantDetails" }
     );
 
-    // 1. Veg/Non-Veg Filter
-    if (isVeg === 'true') {
-      pipeline.push({ $match: { isVeg: true } });
-    } else if (isVeg === 'false') {
-      pipeline.push({ $match: { isVeg: false } });
-    }
-
-    // 2. Dynamic Rating Filter
-    if (rating) {
-      const ratingValue = Number(rating);
-      if (!isNaN(ratingValue)) {
-        pipeline.push({
-          $match: {
-            "rating.average": { $gte: ratingValue }
-          }
-        });
-      }
-    }
-
-    // 3. Fast Delivery Filter
-    if (fastDelivery === 'true') {
-      pipeline.push({
-        $match: {
-          "restaurantDetails.time": { $regex: /^[1-3][0-9]|4[0-4]/ } // Matches 10-44 roughly
-        }
-      });
-    }
-
-    // --- Sorting ---
-
+    // Calculate Product Discount & Add Fields for Grouping
     pipeline.push({
       $addFields: {
-        discountPercentage: {
+        calculatedDiscount: {
           $cond: {
             if: { $and: [{ $gt: ["$price", 0] }, { $gt: ["$discountedPrice", 0] }] },
             then: {
-              $round: [
-                {
-                  $multiply: [
-                    { $divide: [{ $subtract: ["$price", "$discountedPrice"] }, "$price"] },
-                    100
-                  ]
-                },
-                0
+              $multiply: [
+                { $divide: [{ $subtract: ["$price", "$discountedPrice"] }, "$price"] },
+                100
               ]
             },
             else: 0
@@ -1002,75 +988,99 @@ export const getFilteredFoodProducts = async (req, res) => {
       }
     });
 
-    // 4. Offer Filter (Show products with discount > 0)
-    if (offer === 'true') {
+    // Group by Restaurant (Switching context from Products to Restaurants)
+    pipeline.push({
+      $group: {
+        _id: "$restaurantDetails._id",
+        restaurantDetails: { $first: "$restaurantDetails" },
+        minPrice: { $min: "$price" },
+        maxDiscount: { $max: "$calculatedDiscount" }
+      }
+    });
+
+    // Filter out inactive restaurants
+    pipeline.push({
+      $match: {
+        "restaurantDetails.isActive": true
+      }
+    });
+
+    // 2. Dynamic Rating Filter (Restaurant Level)
+    if (rating) {
+      const ratingValue = parseFloat(rating);
+      if (!isNaN(ratingValue)) {
+        pipeline.push({
+          $match: {
+            "restaurantDetails.rating": { $gte: ratingValue }
+          }
+        });
+      }
+    } else if (sort === 'rating') {
       pipeline.push({
         $match: {
-          discountPercentage: { $gt: 0 }
+          "restaurantDetails.rating": { $gte: 3 }
         }
       });
     }
 
+    // 3. Fast Delivery Filter
+    if (fastDelivery === 'true') {
+      pipeline.push({
+        $match: {
+          "restaurantDetails.time": { $regex: /^([1-3][0-9]|4[0-4])/ }
+        }
+      });
+    }
+
+    // 4. Offer Filter (Restaurant 'off' text OR Product Discount)
+    if (offer === 'true') {
+      pipeline.push({
+        $match: {
+          $or: [
+            { maxDiscount: { $gt: 0 } },
+            { "restaurantDetails.off": { $exists: true, $ne: null, $ne: "" } }
+          ]
+        }
+      });
+    }
+
+    // --- Sorting ---
     let sortStage = {};
 
     if (sort === 'price_low_high') {
-      sortStage = { price: 1 };
+      sortStage = { minPrice: 1 };
     } else if (sort === 'price_high_low') {
-      sortStage = { price: -1 };
+      sortStage = { minPrice: -1 };
     } else if (sort === 'rating') {
-      sortStage = { "rating.average": -1 };
+      sortStage = { "restaurantDetails.rating": -1 };
     } else if (sort === 'discount') {
-      sortStage = { discountPercentage: -1 };
+      sortStage = { maxDiscount: -1 };
     } else {
-      // Default Sort (e.g., newest first)
-      sortStage = { createdAt: -1 };
+      sortStage = { "restaurantDetails.createdAt": -1 };
     }
 
     pipeline.push({ $sort: sortStage });
 
-    // Populate Category (lookup)
-    pipeline.push(
-      {
-        $lookup: {
-          from: "categories",
-          localField: "category",
-          foreignField: "_id",
-          as: "categoryDetails"
-        }
-      },
-      { $unwind: { path: "$categoryDetails", preserveNullAndEmptyArrays: true } }
-    );
-
-    // Final Projection to structure the response
+    // Final Projection: Return Restaurant Details
     pipeline.push({
       $project: {
-        title: 1,
-        description: 1,
-        price: 1,
-        discountedPrice: 1,
-        discountPercentage: 1,
-        rating: 1,
-        isVeg: 1,
-        image: 1,
-        // Category Details
-        category: {
-          name: "$categoryDetails.name",
-          image: "$categoryDetails.image"
-        },
-        // Restaurant Details
-        restaurantId: {
-          _id: "$restaurantDetails._id",
-          title: "$restaurantDetails.title",
-          image: "$restaurantDetails.image",
-          time: "$restaurantDetails.time",
-          rating: "$restaurantDetails.rating"
-        }
+        _id: "$restaurantDetails._id",
+        title: "$restaurantDetails.title",
+        image: "$restaurantDetails.image",
+        rating: "$restaurantDetails.rating",
+        time: "$restaurantDetails.time",
+        off: "$restaurantDetails.off",
+        description: "$restaurantDetails.description",
+        address: "$restaurantDetails.address",
+        // Metadata from products
+        startingPrice: "$minPrice",
+        maxDiscount: "$maxDiscount"
       }
     });
 
-    const products = await Product.aggregate(pipeline);
+    const restaurants = await Product.aggregate(pipeline);
 
-    return sendSuccessResponse(res, "Filtered products fetched successfully", products);
+    return sendSuccessResponse(res, "Filtered restaurants fetched successfully", restaurants);
 
   } catch (error) {
     return sendErrorResponse(res, 500, error.message);

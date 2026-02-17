@@ -62,6 +62,11 @@ const userSchema = new mongoose.Schema(
     selectedAddress: {
       type: mongoose.Schema.Types.ObjectId,
       default: null
+    },
+    fcmToken: {
+      type: String,
+      default: null,
+      select: false // Token is private, select explicitly when needed
     }
   },
   { timestamps: true }

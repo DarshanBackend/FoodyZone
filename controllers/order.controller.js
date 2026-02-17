@@ -4,6 +4,8 @@ import Cart from "../models/cart.model.js";
 import User from "../models/user.model.js";
 import Restaurant from "../models/restaurant.model.js";
 import { sendBadRequestResponse, sendErrorResponse, sendForbiddenResponse, sendNotFoundResponse, sendSuccessResponse } from "../utils/response.utils.js";
+import { sendPushNotification } from "../utils/notification.sender.js";
+import notificationModel from "../models/notification.model.js";
 
 const generateOrderId = () => {
   const timestamp = Date.now();
@@ -242,12 +244,35 @@ export const createOrder = async (req, res) => {
           totalPrice: 0,
           totalDiscountedPrice: 0,
           totalSavings: 0,
-          appliedCoupon: {},
+          appliedCoupon: null,
           couponDiscount: 0,
           finalTotal: 0
         }
       }
     );
+
+    // Send Notification for Order Creation
+    const notificationTitle = "Order Placed Successfully! 🎉";
+    const notificationBody = `Your order #${newOrder.orderId} has been placed. We will update you once it's confirmed.`;
+
+    // Create DB Notification
+    const notification = await notificationModel.create({
+      userId,
+      type: "ORDER",
+      title: notificationTitle,
+      message: notificationBody,
+      reference: { orderId: newOrder.orderId, mongoId: newOrder._id }
+    });
+
+    // Send Push Notification
+    if (user.fcmToken) {
+      sendPushNotification(user.fcmToken, notificationTitle, notificationBody, {
+        type: "ORDER",
+        orderId: newOrder.orderId,
+        mongoId: newOrder._id.toString(),
+        notificationId: notification._id.toString()
+      });
+    }
 
     const populatedOrder = await Order.findById(newOrder._id)
       .populate("items.product", "title image price discountedPrice")
@@ -542,6 +567,41 @@ export const updateOrderStatus = async (req, res) => {
     order.lastUpdated = now;
     await order.save();
 
+    // Send Notification for Order Status Update
+    const user = await User.findById(order.userId);
+    if (user) {
+      const statusTitles = {
+        "confirmed": "Order Confirmed! ✅",
+        "processing": "Order is Being Prepared 🍳",
+        "shipped": "Order is On the Way! 🚀",
+        "delivered": "Order Delivered! 🍽️",
+        "cancelled": "Order Cancelled ❌",
+        "returned": "Return Processed ↩️"
+      };
+
+      const title = statusTitles[normalizedStatus] || `Order Update: ${normalizedStatus}`;
+      const message = `Your order #${order.orderId} status has been updated to ${normalizedStatus}.`;
+
+      // Create DB Notification
+      const notification = await notificationModel.create({
+        userId: user._id,
+        type: "ORDER",
+        title: title,
+        message: message,
+        reference: { orderId: order.orderId, mongoId: order._id }
+      });
+
+      // Send Push Notification
+      if (user.fcmToken) {
+        sendPushNotification(user.fcmToken, title, message, {
+          type: "ORDER",
+          orderId: order.orderId,
+          mongoId: order._id.toString(),
+          notificationId: notification._id.toString()
+        });
+      }
+    }
+
     // Build response with all items and their current statuses
     const itemsSummary = order.items.map(item => ({
       itemId: item._id,
@@ -599,6 +659,32 @@ export const cancelOrder = async (req, res) => {
     order.lastUpdated = new Date();
 
     await order.save();
+
+    // Send Notification for Order Cancellation
+    const user = await User.findById(userId);
+    if (user) {
+      const title = "Order Cancelled ❌";
+      const message = `Your order #${order.orderId} has been cancelled.`;
+
+      // Create DB Notification
+      const notification = await notificationModel.create({
+        userId,
+        type: "ORDER",
+        title,
+        message,
+        reference: { orderId: order.orderId, mongoId: order._id }
+      });
+
+      // Send Push Notification
+      if (user.fcmToken) {
+        sendPushNotification(user.fcmToken, title, message, {
+          type: "ORDER",
+          orderId: order.orderId,
+          mongoId: order._id.toString(),
+          notificationId: notification._id.toString()
+        });
+      }
+    }
 
     return sendSuccessResponse(res, "Order cancelled successfully", order);
   } catch (error) {

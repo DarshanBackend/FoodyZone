@@ -833,6 +833,22 @@ export const searchAddress = async (req, res) => {
   }
 };
 
+export const updateFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    const userId = req.user._id;
+
+    if (!fcmToken) {
+      return sendBadRequestResponse(res, "FCM Token is required");
+    }
+
+    await userModel.findByIdAndUpdate(userId, { fcmToken });
+
+    return sendSuccessResponse(res, "FCM Token updated successfully");
+  } catch (error) {
+    return sendErrorResponse(res, 500, "Error updating FCM token", error);
+  }
+};
 
 export const getUserProfile = async (req, res) => {
   try {
