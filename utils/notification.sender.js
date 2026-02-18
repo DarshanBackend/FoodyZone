@@ -29,7 +29,6 @@ try {
     console.error("❌ Firebase Initialization Error:", error.message);
 }
 
-// Helper to ensure all data values are strings (FCM v1 API requirement)
 const stringifyData = (data) => {
     const result = {};
     for (const [key, value] of Object.entries(data)) {

@@ -14,16 +14,6 @@ import {
   createStripeRefund
 } from "../utils/stripe.config.js";
 
-/**
- * Initiate Payment (Create Stripe PaymentIntent)
- * POST /payment/:orderId/initiate
- *
- * Flow:
- *  1. Frontend calls this endpoint with orderId
- *  2. Backend creates a Stripe PaymentIntent and returns clientSecret
- *  3. Frontend uses clientSecret with Stripe.js to confirm payment
- *  4. Frontend calls /verify after Stripe.js confirms
- */
 export const initiatePayment = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -44,12 +34,10 @@ export const initiatePayment = async (req, res) => {
       return sendBadRequestResponse(res, "This order is not configured for online payment. Change payment method first.");
     }
 
-    // If a PaymentIntent already exists for this order, return it
     if (order.paymentInfo.stripePaymentIntentId) {
       try {
         const existingIntent = await retrievePaymentIntent(order.paymentInfo.stripePaymentIntentId);
 
-        // If the intent is still usable, return it
         if (["requires_payment_method", "requires_confirmation", "requires_action"].includes(existingIntent.status)) {
           return sendSuccessResponse(res, "Payment intent already exists", {
             orderId,
@@ -60,23 +48,18 @@ export const initiatePayment = async (req, res) => {
           });
         }
       } catch (err) {
-        // Intent not found or expired, create new one
-        console.log("Previous intent expired, creating new one");
       }
     }
 
-    // Create Stripe PaymentIntent
     const paymentIntent = await createPaymentIntent(
       order.priceSummary.finalTotal,
       orderId
     );
 
-    // Save Stripe info to order
     order.paymentInfo.stripePaymentIntentId = paymentIntent.id;
     order.paymentInfo.stripeClientSecret = paymentIntent.client_secret;
     await order.save();
 
-    // Create or update payment record
     const existingPayment = await Payment.findOne({ orderId: order.orderId, userId });
 
     if (existingPayment) {
@@ -110,13 +93,6 @@ export const initiatePayment = async (req, res) => {
   }
 };
 
-/**
- * Verify Payment (Confirm Stripe PaymentIntent status)
- * POST /payment/:orderId/verify
- *
- * Body (optional): { paymentIntentId }
- * If paymentIntentId is not provided, it will be auto-fetched from the order.
- */
 export const verifyPayment = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -136,18 +112,14 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // Get paymentIntentId from body or from order
     const paymentIntentId = req.body?.paymentIntentId || order.paymentInfo.stripePaymentIntentId;
 
     if (!paymentIntentId) {
       return sendBadRequestResponse(res, "No payment intent found. Please initiate payment first.");
     }
 
-    // Retrieve current status from Stripe
     let paymentIntent = await retrievePaymentIntent(paymentIntentId);
 
-    // If payment is still pending (not yet confirmed), auto-confirm with test card
-    // This is for Postman/backend testing. In production, Stripe.js on frontend confirms the payment.
     if (["requires_payment_method", "requires_confirmation"].includes(paymentIntent.status)) {
       try {
         paymentIntent = await confirmPaymentIntent(paymentIntentId);
@@ -157,7 +129,6 @@ export const verifyPayment = async (req, res) => {
     }
 
     if (paymentIntent.status !== "succeeded") {
-      // Update payment record status
       const mappedStatus = paymentIntent.status === "requires_payment_method" ? "failed" : "processing";
 
       await Payment.findOneAndUpdate(
@@ -168,7 +139,6 @@ export const verifyPayment = async (req, res) => {
       return sendBadRequestResponse(res, `Payment not completed. Stripe status: ${paymentIntent.status}`);
     }
 
-    // Payment succeeded — update order
     order.paymentInfo.status = "completed";
     order.paymentInfo.transactionId = paymentIntentId;
     order.paymentInfo.paymentDate = new Date();
@@ -194,7 +164,6 @@ export const verifyPayment = async (req, res) => {
     order.lastUpdated = new Date();
     await order.save();
 
-    // Update payment record with card details if available
     const latestCharge = paymentIntent.latest_charge;
     let cardDetails = null;
     let paymentMethodType = "card";
@@ -222,7 +191,6 @@ export const verifyPayment = async (req, res) => {
       }
     );
 
-    // Update product sold count
     try {
       for (const item of order.items) {
         await productModel.findByIdAndUpdate(
@@ -232,7 +200,6 @@ export const verifyPayment = async (req, res) => {
         );
       }
     } catch (err) {
-      console.error("Error updating product sales count:", err);
     }
 
     return sendSuccessResponse(res, "Payment verified and order confirmed", {
@@ -248,10 +215,6 @@ export const verifyPayment = async (req, res) => {
   }
 };
 
-/**
- * Get Payment Status
- * GET /payment/:orderId/status
- */
 export const getPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -266,7 +229,6 @@ export const getPaymentStatus = async (req, res) => {
 
     if (!order) return sendNotFoundResponse(res, "Order not found");
 
-    // If payment is pending and we have a Stripe intent, check latest status
     if (order.paymentInfo.status === "pending" && order.paymentInfo.stripePaymentIntentId) {
       try {
         const paymentIntent = await retrievePaymentIntent(order.paymentInfo.stripePaymentIntentId);
@@ -278,11 +240,9 @@ export const getPaymentStatus = async (req, res) => {
           await order.save();
         }
       } catch (stripeErr) {
-        console.error("Stripe status check error:", stripeErr.message);
       }
     }
 
-    // Get payment record if exists
     const payment = await Payment.findOne({ orderId }).select(
       "status method card paymentDate refundId refundAmount refundStatus refundDate"
     );
@@ -304,11 +264,6 @@ export const getPaymentStatus = async (req, res) => {
   }
 };
 
-/**
- * Process Refund via Stripe
- * POST /payment/:orderId/refund
- * Body (optional): { amount, reason }
- */
 export const processRefund = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -344,13 +299,11 @@ export const processRefund = async (req, res) => {
       return sendBadRequestResponse(res, `Refund amount cannot exceed order total (₹${order.priceSummary.finalTotal})`);
     }
 
-    // Create refund via Stripe
     const refund = await createStripeRefund(
       order.paymentInfo.stripePaymentIntentId,
       refundAmount
     );
 
-    // Update order
     order.paymentInfo.status = "refunded";
     order.paymentInfo.refundAmount = refundAmount;
     order.paymentInfo.refundDate = new Date();
@@ -373,7 +326,6 @@ export const processRefund = async (req, res) => {
 
     await order.save();
 
-    // Update payment record
     await Payment.findOneAndUpdate(
       { stripePaymentIntentId: order.paymentInfo.stripePaymentIntentId },
       {
@@ -397,16 +349,9 @@ export const processRefund = async (req, res) => {
   }
 };
 
-/**
- * Handle Stripe Webhook
- * POST /payment/webhook
- */
 export const handleStripeWebhook = async (req, res) => {
   try {
     const event = req.body;
-
-    // In production, verify webhook signature:
-    // const event = constructWebhookEvent(req.rawBody, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
 
     switch (event.type) {
       case "payment_intent.succeeded": {
@@ -447,7 +392,6 @@ export const handleStripeWebhook = async (req, res) => {
               { status: "succeeded", paymentDate: new Date() }
             );
 
-            // Update product sold count
             try {
               for (const item of order.items) {
                 await productModel.findByIdAndUpdate(
@@ -457,7 +401,6 @@ export const handleStripeWebhook = async (req, res) => {
                 );
               }
             } catch (e) {
-              console.error("Stock update failed in webhook:", e);
             }
           }
         }
@@ -502,21 +445,15 @@ export const handleStripeWebhook = async (req, res) => {
       }
 
       default:
-        console.log(`Unhandled Stripe event: ${event.type}`);
     }
 
     return res.status(200).json({ received: true });
 
   } catch (error) {
-    console.error("Stripe Webhook Error:", error);
     return res.status(400).json({ error: error.message });
   }
 };
 
-/**
- * Get Payment History for a User
- * GET /payment/my-payments
- */
 export const getMyPayments = async (req, res) => {
   try {
     const userId = req.user?._id;
@@ -544,10 +481,6 @@ export const getMyPayments = async (req, res) => {
   }
 };
 
-/**
- * Get All Payment History (Admin)
- * GET /payment/all
- */
 export const getAllPayments = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;

@@ -329,7 +329,6 @@ export const sellerLoginController = async (req, res) => {
         id: seller._id,
         email: seller.email,
         role: seller.role,
-        // businessName: seller.businessName, // businessName is not in the schema provided, assume firstName/lastName used or businessName is missing.
         firstName: seller.firstName,
         lastName: seller.lastName,
         mobileNo: seller.mobileNo

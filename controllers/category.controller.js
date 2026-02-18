@@ -50,7 +50,6 @@ export const getAllCategory = async (req, res) => {
     const { parentCategory } = req.query;
     let filter = {};
 
-    // Filter by parentCategory if provided (use 'null' string for root categories)
     if (parentCategory === "null") {
       filter.parentCategory = null;
     } else if (parentCategory) {

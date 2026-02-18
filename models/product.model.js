@@ -5,7 +5,6 @@ const galleryImage = new mongoose.Schema({
     gImageKey: { type: String, default: null }
 });
 
-// 1. Base Product Schema (Common Fields)
 const baseProductSchema = new mongoose.Schema({
     title: { type: String, required: true },
     description: { type: String, default: null },
@@ -21,10 +20,8 @@ const baseProductSchema = new mongoose.Schema({
         required: [true, "Seller ID is required"]
     },
 
-    // Common Image Fields
     image: { type: String, default: null },
     imageKey: { type: String, default: null },
-    // gImage removed from base, specific to Food now as per request
 
     price: { type: Number, required: true, default: 0 },
     stock: { type: Number, required: true, default: 0 },
@@ -49,9 +46,7 @@ const baseProductSchema = new mongoose.Schema({
 
 const ProductModel = mongoose.model("product", baseProductSchema);
 
-// 2. Grocery Product Schema
 const GroceryProduct = ProductModel.discriminator('grocery', new mongoose.Schema({
-    // Grocery specific fields
     brand: {
         type: mongoose.Types.ObjectId,
         ref: "brand",
@@ -66,9 +61,7 @@ const GroceryProduct = ProductModel.discriminator('grocery', new mongoose.Schema
     customerCareDetails: { type: String, default: null },
 }));
 
-// 3. Food Delivery Product Schema
 const FoodDeliveryProduct = ProductModel.discriminator('delivery', new mongoose.Schema({
-    // Food specific fields
     flavor: [{ type: String }],
     isVeg: { type: Boolean, default: true },
 

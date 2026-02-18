@@ -9,7 +9,7 @@ import { createNewCategory, deleteCategory, getAllCategory, getCategoryById, sea
 import { createBrand, deleteBrand, getAllBrands, getBrandsById, getProductsByBrandId, getSellerBrands, searchBrand, updateBrandById } from '../controllers/brand.controller.js';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../controllers/wishlist.controller.js';
 import { addRestaurantReview, deleteRestaurantReview, getRestaurantReviews, updateRestaurantReview } from '../controllers/restaurantReview.controller.js';
-import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters, getDealOfTheDay, getFreshFruits, getBestOffers, getProductsSoldInEvening, getPopularRestaurants, getFilteredFoodProducts } from '../controllers/product.controller.js';
+import { createGroceryProduct, createFoodProduct, updateGroceryProduct, updateFoodProduct, getAllGroceryProducts, getAllFoodProducts, getGroceryProductById, getFoodProductById, getSellerGroceryProducts, getSellerFoodProducts, deleteGroceryProduct, deleteFoodProduct, searchProducts, getProductByCategory, getProductsByRestaurantId, getProductFilters, getDealOfTheDay, getFreshFruits, getBestOffers, getProductsSoldInEvening, getPopularRestaurants, getFilteredFoodProducts, getCollDrink } from '../controllers/product.controller.js';
 import cartController from '../controllers/cart.controller.js';
 import orderController from '../controllers/order.controller.js';
 import paymentController from '../controllers/payment.controller.js';
@@ -122,6 +122,7 @@ indexRoutes.get("/productFilters", getProductFilters);
 indexRoutes.get("/searchProducts", searchProducts)
 indexRoutes.get("/getDealOfTheDay", getDealOfTheDay);
 indexRoutes.get("/getFreshFruits", getFreshFruits);
+indexRoutes.get("/getCollDrink", getCollDrink);
 indexRoutes.get("/getBestOffers", getBestOffers);
 indexRoutes.get("/getProductsSoldInEvening", getProductsSoldInEvening);
 indexRoutes.get("/getPopularRestaurants", getPopularRestaurants);

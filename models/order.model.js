@@ -20,10 +20,8 @@ const orderItemSchema = new mongoose.Schema(
       required: true
     },
 
-    // Restaurant name for delivery items
     restaurantName: { type: String, default: null },
 
-    // Per-item estimated delivery
     estimatedDelivery: { type: String, default: null },
     estimatedDeliveryDate: { type: Date, default: null },
 
@@ -33,7 +31,6 @@ const orderItemSchema = new mongoose.Schema(
       default: "pending"
     },
 
-    // Item-level status history for per-item timeline
     statusHistory: [
       {
         status: String,
@@ -107,7 +104,6 @@ const orderSchema = new mongoose.Schema(
       }
     },
 
-    // Stripe Payment Info
     paymentInfo: {
       method: {
         type: String,

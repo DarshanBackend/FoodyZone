@@ -17,7 +17,6 @@ const paymentSchema = new mongoose.Schema(
             ref: "order"
         },
 
-        // Stripe fields
         stripePaymentIntentId: {
             type: String,
             required: true,
@@ -48,11 +47,9 @@ const paymentSchema = new mongoose.Schema(
             required: true
         },
 
-        // Customer details
         email: { type: String },
         contact: { type: String },
 
-        // Card info (last4 only for display)
         card: {
             brand: String,
             last4: String,
@@ -61,13 +58,10 @@ const paymentSchema = new mongoose.Schema(
             funding: String
         },
 
-        // Refund details
         refundId: { type: String },
         refundAmount: { type: Number, default: 0 },
         refundStatus: { type: String },
         refundDate: { type: Date },
-
-        // Error tracking
         errorCode: { type: String },
         errorMessage: { type: String },
 

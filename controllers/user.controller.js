@@ -54,13 +54,11 @@ export const createUser = async (req, res) => {
     } catch (smsError) {
       console.error("SMS sending failed (proceeding for dev):", smsError.message);
       console.log("DEV MODE OTP:", otp);
-      // Proceed without failing.
     }
 
     return sendSuccessResponse(res, "User registered. OTP sent (check console if SMS failed).", {
       userId: newUser._id,
       phone: newUser.phone,
-      // otp: otp // Optional: include OTP in response for easier testing
     });
 
   } catch (error) {
@@ -80,10 +78,6 @@ export const userLogin = async (req, res) => {
 
     if (!user) {
       return sendNotFoundResponse(res, "User not found with this phone number");
-    }
-
-    if (user.isSocialLogin) {
-      // Social login logic if needed
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000);
@@ -394,12 +388,11 @@ export const verifyOtp = async (req, res) => {
     user.otpExpiry = null;
     await user.save();
 
-    // Generate Token
     const payload = {
       _id: user._id,
       fullName: user.fullName,
       email: user.email,
-      role: user.role // Ensure role is included if schema has it, otherwise remove
+      role: user.role
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });

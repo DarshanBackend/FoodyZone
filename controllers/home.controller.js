@@ -38,7 +38,6 @@ export const bestSeller = async (req, res) => {
 
     return sendSuccessResponse(res, "best selling Products", products);
   } catch (error) {
-    console.log("Error while bestSeller", error)
     return sendErrorResponse(res, 500, "Error while bestSeller", error)
   }
 }
@@ -61,7 +60,6 @@ export const newProducts = async (req, res) => {
 
     return sendSuccessResponse(res, "New Products fetched successfully", products);
   } catch (error) {
-    console.log("Error while fetching new products", error);
     return sendErrorResponse(res, 500, "Error while fetching new products", error);
   }
 }
@@ -87,7 +85,6 @@ export const trendingDeals = async (req, res) => {
           trendingScore: {
             $add: [
               { $multiply: ["$soldCount", 2] },
-              // { $multiply: ["$view", 1] }, // View count not in new schema
               {
                 $cond: [
                   { $gte: ["$createdAt", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)] },
@@ -106,8 +103,6 @@ export const trendingDeals = async (req, res) => {
 
     const products = await productModel.aggregate(pipeline);
 
-    // Hydrate if needed, but aggregate returns raw objects which is often fine. 
-    // If population is needed:
     const ids = products.map(x => x._id);
 
     const finalProducts = await productModel
@@ -121,8 +116,6 @@ export const trendingDeals = async (req, res) => {
 
 export const grabNowDeals = async (req, res) => {
   try {
-    // Logic for grab now deals usually implies high discount.
-    // New schema has 'discount' field or we can check packSizes prices.
     const { type } = req.query;
 
     const filter = { isActive: true };
@@ -131,27 +124,16 @@ export const grabNowDeals = async (req, res) => {
     const products = await productModel.find(filter);
 
     const deals = products.map(p => {
-      // Calculate max discount percentage available in any pack size
       let maxDiscount = 0;
       let minPrice = Infinity;
 
       if (p.packSizes && p.packSizes.length > 0) {
         p.packSizes.forEach(s => {
-          // Assuming price is discounted price, how do we know original? 
-          // The new schema doesn't explicitly have original price in packSizeSchema 
-          // but user provided example data: { "weight": 250, "unit": "g", "price": 40, "stock": 50 }
-          // And top level fields: price, originalPrice, discount.
-          // Let's use top level discount if available or calculate.
           if (s.price < minPrice) minPrice = s.price;
         });
       }
 
-      // If top level discount is present use it
       if (p.discount) maxDiscount = p.discount;
-
-      // Populate deal details
-      // Since we don't have explicit original price in pack sizes, we can't calculate discount % per pack 
-      // unless we assume something. User top level fields suggests generic product discount.
 
       return {
         ...p._doc,
@@ -175,13 +157,8 @@ export const getFiltteredProducts = async (req, res) => {
     const {
       q,
       categoryId,
-      // brandId, // Brand is gone in new schema ? User schema showed sellerId but no brand in provided snippet.
-      // But standard e-com usually has brand. I'll comment out brand logic if model doesn't support it or query assumes it.
-      // Schema provided: category, sellerId. No brand.
       minPrice,
       maxPrice,
-      // color, // Removed
-      // size, // Logic needs update to check packSizes
       rating,
       sort,
       type
@@ -205,8 +182,6 @@ export const getFiltteredProducts = async (req, res) => {
       matchQuery.category = new mongoose.Types.ObjectId(categoryId);
     }
 
-    // Removing brand filtering as it's not in the new schema. 
-
     if (min !== null || max !== null) {
       matchQuery['packSizes.price'] = {};
       if (min !== null) matchQuery['packSizes.price'].$gte = min;
@@ -216,7 +191,6 @@ export const getFiltteredProducts = async (req, res) => {
     let products = await productModel.find(matchQuery)
       .sort({ createdAt: -1 });
 
-    // Rating filtering
     if (minRating !== null) {
       const productIds = products.map(p => p._id);
       const ratingAgg = await reviewModel.aggregate([
@@ -250,7 +224,6 @@ export const getFiltteredProducts = async (req, res) => {
     return sendSuccessResponse(res, "Products fetched successfully", products);
 
   } catch (error) {
-    console.log("error while filtering products", error);
     return sendErrorResponse(res, 500, "Error while filtering products", error);
   }
 };

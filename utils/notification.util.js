@@ -1,8 +1,5 @@
 import notificationModel from "../models/notification.model.js";
 
-/**
- * Helper to create a notification in the database
- */
 export const createNotification = async ({
     userId,
     title,
@@ -34,9 +31,6 @@ export const createNotification = async ({
     }
 };
 
-/**
- * Get all notifications for a specific user
- */
 export const getUserNotifications = async (userId) => {
     try {
         return await notificationModel
@@ -49,9 +43,6 @@ export const getUserNotifications = async (userId) => {
     }
 };
 
-/**
- * Mark a notification as read
- */
 export const markNotificationAsRead = async (notificationId) => {
     try {
         return await notificationModel.findByIdAndUpdate(
@@ -65,9 +56,6 @@ export const markNotificationAsRead = async (notificationId) => {
     }
 };
 
-/**
- * Soft delete a notification
- */
 export const deleteNotification = async (notificationId) => {
     try {
         return await notificationModel.findByIdAndUpdate(

@@ -12,7 +12,6 @@ const brandSchema = new mongoose.Schema(
       type: String,
       required: true
     },
-    // categories removed as per user request
     sellerId: {
       type: mongoose.Types.ObjectId,
       ref: "seller"

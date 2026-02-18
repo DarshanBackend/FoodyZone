@@ -13,7 +13,6 @@ const generateOrderId = () => {
   return `ORD-${timestamp}-${random}`;
 };
 
-// Local recalculateCart to ensure fresh totals before order creation
 const recalculateCart = (cart) => {
   if (cart.appliedCoupon && !cart.appliedCoupon.couponId) {
     cart.appliedCoupon = null;
@@ -66,7 +65,6 @@ const recalculateCart = (cart) => {
   cart.finalTotal = subtotal;
 };
 
-// Strip docType from populated product and clean response
 const cleanOrderResponse = (order) => {
   const obj = order.toObject ? order.toObject() : { ...order };
   if (obj.items) {
@@ -136,25 +134,21 @@ export const createOrder = async (req, res) => {
 
     const now = new Date();
 
-    // Build order items with estimated delivery and restaurant name
     const orderItems = cart.items.map(item => {
       const product = item.product;
       const isDelivery = product?.docType === "delivery";
 
-      // Estimated delivery per item
       let estimatedDelivery = null;
       let estimatedDeliveryDate = null;
 
       if (isDelivery) {
         estimatedDelivery = "30-45 min";
-        estimatedDeliveryDate = new Date(now.getTime() + 45 * 60 * 1000); // 45 min from now
+        estimatedDeliveryDate = new Date(now.getTime() + 45 * 60 * 1000);
       } else {
-        // Grocery — 2-3 days
         estimatedDelivery = "2-3 days";
-        estimatedDeliveryDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 days
+        estimatedDeliveryDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
       }
 
-      // Restaurant name for delivery items
       const restaurantName = isDelivery && product.restaurantId?.title
         ? product.restaurantId.title
         : null;
@@ -174,7 +168,6 @@ export const createOrder = async (req, res) => {
       };
     });
 
-    // Overall estimated delivery = latest item's estimated delivery
     const latestDeliveryDate = orderItems.reduce((latest, item) => {
       if (item.estimatedDeliveryDate && (!latest || item.estimatedDeliveryDate > latest)) {
         return item.estimatedDeliveryDate;
@@ -251,11 +244,9 @@ export const createOrder = async (req, res) => {
       }
     );
 
-    // Send Notification for Order Creation
     const notificationTitle = "Order Placed Successfully! 🎉";
     const notificationBody = `Your order #${newOrder.orderId} has been placed. We will update you once it's confirmed.`;
 
-    // Create DB Notification
     const notification = await notificationModel.create({
       userId,
       type: "ORDER",
@@ -264,7 +255,6 @@ export const createOrder = async (req, res) => {
       reference: { orderId: newOrder.orderId, mongoId: newOrder._id }
     });
 
-    // Send Push Notification
     if (user.fcmToken) {
       sendPushNotification(user.fcmToken, notificationTitle, notificationBody, {
         type: "ORDER",
@@ -393,14 +383,6 @@ export const getOrderByMongoId = async (req, res) => {
   }
 };
 
-/**
- * Update Order Status (Admin/Seller)
- * PATCH /order/:orderId/status
- * 
- * Body: { status, notes?, itemId? }
- * - If itemId is provided: only that item's status is updated
- * - If itemId is NOT provided: all items (matching seller) are updated
- */
 export const updateOrderStatus = async (req, res) => {
   try {
     const userId = req.user?._id;
@@ -433,10 +415,8 @@ export const updateOrderStatus = async (req, res) => {
     const updatedItemDetails = [];
 
     for (const item of order.items) {
-      // If itemId is given, only update that specific item
       if (itemId && String(item._id) !== String(itemId)) continue;
 
-      // Seller can only update their own items
       if (role === "seller" && String(item.sellerId) !== String(userId)) continue;
       if (role !== "admin" && role !== "seller") continue;
 
@@ -445,7 +425,6 @@ export const updateOrderStatus = async (req, res) => {
         const oldItemIndex = itemHierarchy.indexOf(item.itemStatus);
         const newItemIndex = itemHierarchy.indexOf(normalizedStatus);
 
-        // Allow cancellation/return from any state
         if (["cancelled", "returned"].includes(normalizedStatus)) {
           item.itemStatus = normalizedStatus;
           item.statusHistory.push({
@@ -461,10 +440,8 @@ export const updateOrderStatus = async (req, res) => {
 
         if (newItemIndex === -1 || oldItemIndex === -1) continue;
 
-        // Prevent backward movement
         if (newItemIndex < oldItemIndex) continue;
 
-        // Prevent skipping steps
         if (newItemIndex > oldItemIndex + 1) {
           return sendBadRequestResponse(res,
             `Cannot update item directly to '${normalizedStatus}'. Follow sequence: ${itemHierarchy[oldItemIndex]} → ${itemHierarchy[oldItemIndex + 1]}`
@@ -485,7 +462,6 @@ export const updateOrderStatus = async (req, res) => {
       }
     }
 
-    // Auto-confirm pending items when payment is completed
     if (order.paymentInfo.status === "completed") {
       order.items.forEach(item => {
         if (item.itemStatus === "pending") {
@@ -503,7 +479,6 @@ export const updateOrderStatus = async (req, res) => {
       return sendBadRequestResponse(res, "No valid items found to update or permission denied");
     }
 
-    // Determine global order status based on all items
     const hierarchy = ["pending", "confirmed", "processing", "shipped", "delivered"];
     const activeItems = order.items.filter(i => !["cancelled", "returned"].includes(i.itemStatus));
 
@@ -528,7 +503,6 @@ export const updateOrderStatus = async (req, res) => {
       if (minStatusIndex < 3 && (hasShipped || hasDelivered)) determinedStatus = "shipped";
       if (activeItems.every(i => i.itemStatus === "delivered")) determinedStatus = "delivered";
 
-      // Don't go backward
       const oldIdx = hierarchy.indexOf(order.orderStatus.current);
       const newIdx = hierarchy.indexOf(determinedStatus);
       if (oldIdx !== -1 && newIdx !== -1 && newIdx < oldIdx) {
@@ -538,7 +512,6 @@ export const updateOrderStatus = async (req, res) => {
       order.orderStatus.current = determinedStatus;
     }
 
-    // Push to global history if status changed
     const lastHistory = order.orderStatus.history[order.orderStatus.history.length - 1];
     if (!lastHistory || lastHistory.status !== order.orderStatus.current) {
       order.orderStatus.history.push({
@@ -548,7 +521,6 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Update global timeline
     const globalStatus = order.orderStatus.current;
     order.timeline = order.timeline || {};
 
@@ -567,7 +539,6 @@ export const updateOrderStatus = async (req, res) => {
     order.lastUpdated = now;
     await order.save();
 
-    // Send Notification for Order Status Update
     const user = await User.findById(order.userId);
     if (user) {
       const statusTitles = {
@@ -582,7 +553,6 @@ export const updateOrderStatus = async (req, res) => {
       const title = statusTitles[normalizedStatus] || `Order Update: ${normalizedStatus}`;
       const message = `Your order #${order.orderId} status has been updated to ${normalizedStatus}.`;
 
-      // Create DB Notification
       const notification = await notificationModel.create({
         userId: user._id,
         type: "ORDER",
@@ -591,7 +561,6 @@ export const updateOrderStatus = async (req, res) => {
         reference: { orderId: order.orderId, mongoId: order._id }
       });
 
-      // Send Push Notification
       if (user.fcmToken) {
         sendPushNotification(user.fcmToken, title, message, {
           type: "ORDER",
@@ -602,7 +571,6 @@ export const updateOrderStatus = async (req, res) => {
       }
     }
 
-    // Build response with all items and their current statuses
     const itemsSummary = order.items.map(item => ({
       itemId: item._id,
       product: item.product,
@@ -626,11 +594,6 @@ export const updateOrderStatus = async (req, res) => {
   }
 };
 
-
-/**
- * Cancel Order
- * POST /order/:orderId/cancel
- */
 export const cancelOrder = async (req, res) => {
   try {
     const userId = req.user?._id;
@@ -660,13 +623,11 @@ export const cancelOrder = async (req, res) => {
 
     await order.save();
 
-    // Send Notification for Order Cancellation
     const user = await User.findById(userId);
     if (user) {
       const title = "Order Cancelled ❌";
       const message = `Your order #${order.orderId} has been cancelled.`;
 
-      // Create DB Notification
       const notification = await notificationModel.create({
         userId,
         type: "ORDER",
@@ -675,7 +636,6 @@ export const cancelOrder = async (req, res) => {
         reference: { orderId: order.orderId, mongoId: order._id }
       });
 
-      // Send Push Notification
       if (user.fcmToken) {
         sendPushNotification(user.fcmToken, title, message, {
           type: "ORDER",
@@ -692,10 +652,6 @@ export const cancelOrder = async (req, res) => {
   }
 };
 
-/**
- * Return Order
- * POST /order/:orderId/return
- */
 export const returnOrder = async (req, res) => {
   try {
     const userId = req.user?._id;
@@ -735,11 +691,6 @@ export const returnOrder = async (req, res) => {
   }
 };
 
-/**
- * Get All Orders (Admin Only)
- * GET /order/admin/all-orders
- */
-
 export const getAllOrders = async (req, res) => {
   try {
     const { status, page = 1, limit = 20, sortBy = "createdAt", sortOrder = "-1" } = req.query;
@@ -774,12 +725,6 @@ export const getAllOrders = async (req, res) => {
   }
 };
 
-
-
-/**
- * Get Seller's Orders
- * GET /order/seller/my-orders
- */
 export const getSellerOrders = async (req, res) => {
   try {
     const sellerId = req.user?._id;
@@ -816,7 +761,6 @@ export const getSellerOrders = async (req, res) => {
         (!status || item.itemStatus === status)
       );
 
-      // Strip docType from products (.lean() bypasses toJSON transforms)
       sellerItems.forEach(item => {
         if (item.product?.docType) delete item.product.docType;
       });
@@ -894,7 +838,6 @@ export const getOrderTimeline = async (req, res) => {
       { key: 'delivered', label: 'Delivered', msg: 'Your order has been delivered successfully.' }
     ];
 
-    // Determine which history and status to use
     let currentStatus;
     let historySource;
 
@@ -903,7 +846,6 @@ export const getOrderTimeline = async (req, res) => {
       if (!item) return sendNotFoundResponse(res, "Item not found in this order");
 
       currentStatus = item.itemStatus;
-      // Use item's own statusHistory if available, fallback to global
       historySource = (item.statusHistory && item.statusHistory.length > 0)
         ? item.statusHistory
         : order.orderStatus.history;
@@ -919,7 +861,6 @@ export const getOrderTimeline = async (req, res) => {
     let finalTimeline = [];
 
     if (['cancelled', 'returned'].includes(currentStatus)) {
-      // Show completed steps + the cancel/return step
       for (const step of validSteps) {
         const entry = getHistoryEntry(step.key);
         if (entry) {
@@ -985,7 +926,6 @@ export const getOrderTimeline = async (req, res) => {
       });
     }
 
-    // All items summary
     const itemsSummary = order.items.map(item => ({
       itemId: item._id,
       product: item.product,

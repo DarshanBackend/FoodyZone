@@ -8,7 +8,6 @@ import restaurantModel from "../models/restaurant.model.js";
 import { sendBadRequestResponse, sendErrorResponse, sendNotFoundResponse, sendSuccessResponse } from "../utils/response.utils.js";
 import { deleteFromS3, updateS3, uploadToS3 } from "../utils/s3Service.js";
 
-// Helper to recursively get all child category IDs
 const getAllChildCategoryIds = async (categoryId) => {
   const children = await CategoryModel.find({ parentCategory: categoryId }).select("_id");
   let allIds = children.map(c => c._id);
@@ -30,8 +29,6 @@ export const createGroceryProduct = async (req, res) => {
       price,
       discountedPrice: discPriceInput,
       discountdPrice,
-
-      // Grocery Specific
       brand,
       manufacturer,
       soldBy,
@@ -47,7 +44,6 @@ export const createGroceryProduct = async (req, res) => {
     const category = categoryInput || categories;
     const discountedPrice = discPriceInput || discountdPrice;
     const finalProductType = inputProductType || typeOfProduct;
-    // Force 'productType' to 'grocery' for discriminator via Model usage
 
     const sellerId = req.user?._id;
 
@@ -62,7 +58,6 @@ export const createGroceryProduct = async (req, res) => {
     if (!category) return sendBadRequestResponse(res, "Category is required");
     if (!price) return sendBadRequestResponse(res, "Price is required");
 
-    // Validations
     if (brand) {
       if (!mongoose.Types.ObjectId.isValid(brand)) return sendBadRequestResponse(res, "Invalid Brand ID");
       const brandDoc = await brandModel.findById(brand);
@@ -70,7 +65,6 @@ export const createGroceryProduct = async (req, res) => {
       if (String(brandDoc.sellerId) !== String(sellerId)) return sendBadRequestResponse(res, "You can only use your own brands");
     }
 
-    // Image Upload (Only 'image' for Grocery)
     let image = null;
     let imageKey = null;
 
@@ -92,9 +86,7 @@ export const createGroceryProduct = async (req, res) => {
       inStock: inStock !== undefined ? inStock : (stock > 0),
       image,
       imageKey,
-      isActive: true, // Default
-
-      // Grocery Specifics
+      isActive: true,
       discountedPrice: discountedPrice || 0,
       brand: brand || null,
       manufacturer,
@@ -133,17 +125,13 @@ export const createFoodProduct = async (req, res) => {
       inStock
     } = req.body;
 
-    // No discountedPrice, brand, etc for Food
-
     const sellerId = req.user?._id;
     if (!sellerId || !mongoose.Types.ObjectId.isValid(sellerId)) return sendBadRequestResponse(res, "Invalid or missing seller ID");
 
-    // Validate inputs...
     if (!title) return sendBadRequestResponse(res, "Title required");
     if (!category) return sendBadRequestResponse(res, "Category required");
     if (!price) return sendBadRequestResponse(res, "Price required");
 
-    // Image Upload (Only 'image')
     let image = null, imageKey = null;
 
     if (req.files && req.files.image && req.files.image.length > 0) {
@@ -172,8 +160,6 @@ export const createFoodProduct = async (req, res) => {
       image,
       imageKey,
       isActive: true,
-
-      // Food Specifics
       flavor: parsedFlavor,
       isVeg: isVeg !== undefined ? isVeg : true,
       restaurantId: restaurantId || null
@@ -311,7 +297,6 @@ export const updateGroceryProduct = async (req, res) => {
       description,
       isActive,
       price,
-      // Grocery Specifics
       discountedPrice: discPriceInput,
       discountdPrice,
       brand,
@@ -349,7 +334,6 @@ export const updateGroceryProduct = async (req, res) => {
     if (inStock !== undefined) updateData.inStock = inStock;
     if (category && mongoose.Types.ObjectId.isValid(category)) updateData.category = category;
 
-    // Grocery fields
     if (discountedPrice !== undefined) updateData.discountedPrice = discountedPrice;
     if (manufacturer) updateData.manufacturer = manufacturer;
     if (soldBy) updateData.soldBy = soldBy;
@@ -366,7 +350,6 @@ export const updateGroceryProduct = async (req, res) => {
       updateData.brand = brand;
     }
 
-    // Image (Grocery only has cover image)
     if (req.files && req.files.image && req.files.image.length > 0) {
       if (product.imageKey) await deleteFromS3(product.imageKey);
       const file = req.files.image[0];
@@ -374,8 +357,6 @@ export const updateGroceryProduct = async (req, res) => {
       updateData.image = url;
       updateData.imageKey = url.split(".amazonaws.com/")[1];
     }
-
-    // Explicitly nullify gImage if somehow present in schema, though model handles schema.
 
     const updatedProduct = await Product.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
       .populate('category', 'name image')
@@ -397,7 +378,6 @@ export const updateFoodProduct = async (req, res) => {
       description,
       isActive,
       price,
-      // Food Specifics
       flavor,
       isVeg,
       restaurantId,
@@ -424,7 +404,6 @@ export const updateFoodProduct = async (req, res) => {
     if (inStock !== undefined) updateData.inStock = inStock;
     if (category && mongoose.Types.ObjectId.isValid(category)) updateData.category = category;
 
-    // Food fields
     if (isVeg !== undefined) updateData.isVeg = isVeg;
     if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) updateData.restaurantId = restaurantId;
 
@@ -436,7 +415,6 @@ export const updateFoodProduct = async (req, res) => {
       }
     }
 
-    // Images (Cover Only)
     if (req.files && req.files.image && req.files.image.length > 0) {
       if (product.imageKey) await deleteFromS3(product.imageKey);
       const file = req.files.image[0];
@@ -464,7 +442,6 @@ export const deleteGroceryProduct = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(id)) return sendBadRequestResponse(res, "Invalid ProductId");
 
-    // Check for Grocery specifically
     const product = await Product.findOne({ _id: id, docType: 'grocery' });
     if (!product) return sendNotFoundResponse(res, "Grocery Product not found");
 
@@ -472,9 +449,7 @@ export const deleteGroceryProduct = async (req, res) => {
       return sendBadRequestResponse(res, "Unauthorized");
     }
 
-    // Delete Cover Image
     if (product.imageKey) await deleteFromS3(product.imageKey);
-    // Grocery has no gImage
 
     await Product.findByIdAndDelete(id);
     await sellerModel.findByIdAndUpdate(product.sellerId, { $pull: { products: product._id } });
@@ -493,7 +468,6 @@ export const deleteFoodProduct = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(id)) return sendBadRequestResponse(res, "Invalid ProductId");
 
-    // Check for Food specifically
     const product = await Product.findOne({ _id: id, docType: 'delivery' });
     if (!product) return sendNotFoundResponse(res, "Food Product not found");
 
@@ -501,7 +475,6 @@ export const deleteFoodProduct = async (req, res) => {
       return sendBadRequestResponse(res, "Unauthorized");
     }
 
-    // Delete Images
     if (product.imageKey) await deleteFromS3(product.imageKey);
 
     await Product.findByIdAndDelete(id);
@@ -519,7 +492,6 @@ export const searchProducts = async (req, res) => {
 
     const matchQuery = { isActive: true };
 
-    // Filter by docType if provided ('grocery' or 'delivery')
     if (type === 'grocery' || type === 'delivery') {
       matchQuery.docType = type;
     }
@@ -531,13 +503,12 @@ export const searchProducts = async (req, res) => {
     if (q && q.trim()) {
       const searchRegex = { $regex: q.trim(), $options: "i" };
 
-      // Find categories that match the search term
       const matchingCategories = await CategoryModel.find({ name: searchRegex }).distinct('_id');
 
       matchQuery.$or = [
         { title: searchRegex },
         { description: searchRegex },
-        { category: { $in: matchingCategories } } // Include products belonging to matched categories
+        { category: { $in: matchingCategories } }
       ];
     }
 
@@ -647,9 +618,8 @@ export const getProductFilters = async (req, res) => {
 
 export const getDealOfTheDay = async (req, res) => {
   try {
-    const { category } = req.query; // 'grocery' or 'food delivery'
+    const { category } = req.query;
 
-    // Determine the docType based on input
     let docType = null;
     if (category === 'grocery') {
       docType = 'grocery';
@@ -659,14 +629,12 @@ export const getDealOfTheDay = async (req, res) => {
       return sendBadRequestResponse(res, "Invalid or missing category. Use 'grocery' or 'food delivery'.");
     }
 
-    // Get Today's Date Range
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Find orders created today
     const ordersToday = await Order.find({
       createdAt: { $gte: startOfDay, $lte: endOfDay }
     }).select('items');
@@ -675,7 +643,6 @@ export const getDealOfTheDay = async (req, res) => {
       return sendSuccessResponse(res, "No products ordered today", []);
     }
 
-    // Extract Product IDs
     let productIds = [];
     ordersToday.forEach(order => {
       order.items.forEach(item => {
@@ -685,16 +652,14 @@ export const getDealOfTheDay = async (req, res) => {
       });
     });
 
-    // Remove duplicates
     productIds = [...new Set(productIds.map(id => id.toString()))];
 
-    // Find Products matching docType
     const products = await Product.find({
       _id: { $in: productIds },
       docType: docType
     })
       .populate('category', 'name image')
-      .populate('sellerId', 'shopName') // Optional: add more details if needed
+      .populate('sellerId', 'shopName')
       .lean();
 
     return sendSuccessResponse(res, "Ordered products fetched successfully", products);
@@ -726,6 +691,34 @@ export const getFreshFruits = async (req, res) => {
     }
 
     return sendSuccessResponse(res, "Fresh Fruits fetched successfully", products);
+
+  } catch (error) {
+    return sendErrorResponse(res, 500, error.message);
+  }
+};
+
+export const getCollDrink = async (req, res) => {
+  try {
+    const category = await CategoryModel.findOne({ name: "Cold drinks & juices" });
+
+    if (!category) {
+      return sendNotFoundResponse(res, "Category 'Cold Drinks' not found");
+    }
+
+    const products = await Product.find({
+      category: category._id,
+      isActive: true,
+      docType: 'grocery'
+    })
+      .populate('category', 'name image')
+      .populate('sellerId', 'shopName')
+      .sort({ createdAt: -1 });
+
+    if (!products || products.length === 0) {
+      return sendSuccessResponse(res, "No products found in Cold Drinks", []);
+    }
+
+    return sendSuccessResponse(res, "Cold Drinks fetched successfully", products);
 
   } catch (error) {
     return sendErrorResponse(res, 500, error.message);
@@ -767,11 +760,10 @@ export const getBestOffers = async (req, res) => {
         $sort: { discountPercentage: -1 }
       },
       {
-        $limit: 20 // Reasonable limit for "top deals"
+        $limit: 20
       }
     ]);
 
-    // Populate the results manually as aggregate returns POJOs
     await Product.populate(products, [
       { path: 'category', select: 'name image' },
       { path: 'sellerId', select: 'shopName' }
@@ -791,10 +783,10 @@ export const getBestOffers = async (req, res) => {
 export const getProductsSoldInEvening = async (req, res) => {
   try {
     const startOfEvening = new Date();
-    startOfEvening.setHours(17, 0, 0, 0); // 5 PM
+    startOfEvening.setHours(17, 0, 0, 0);
 
     const endOfEvening = new Date();
-    endOfEvening.setHours(21, 0, 0, 0); // 9 PM
+    endOfEvening.setHours(21, 0, 0, 0);
 
     const orders = await Order.find({
       createdAt: { $gte: startOfEvening, $lt: endOfEvening },
@@ -805,7 +797,6 @@ export const getProductsSoldInEvening = async (req, res) => {
       return sendSuccessResponse(res, "No products sold this evening", []);
     }
 
-    // Extract Product IDs
     let productIds = [];
     orders.forEach(order => {
       order.items.forEach(item => {
@@ -815,10 +806,8 @@ export const getProductsSoldInEvening = async (req, res) => {
       });
     });
 
-    // Remove duplicates
     productIds = [...new Set(productIds.map(id => id.toString()))];
 
-    // Find Products using aggregation to calculate discount percentage and filter for grocery
     const products = await Product.aggregate([
       {
         $match: {
@@ -853,7 +842,6 @@ export const getProductsSoldInEvening = async (req, res) => {
       }
     ]);
 
-    // Populate the results manually
     await Product.populate(products, [
       { path: 'category', select: 'name image' },
       { path: 'sellerId', select: 'shopName' }
@@ -950,14 +938,12 @@ export const getFilteredFoodProducts = async (req, res) => {
       }
     ];
 
-    // 1. Veg/Non-Veg Filter (Filter Products first)
     if (isVeg === 'true') {
       pipeline.push({ $match: { isVeg: true } });
     } else if (isVeg === 'false') {
       pipeline.push({ $match: { isVeg: false } });
     }
 
-    // Lookup Restaurant Details
     pipeline.push(
       {
         $lookup: {
@@ -970,7 +956,6 @@ export const getFilteredFoodProducts = async (req, res) => {
       { $unwind: "$restaurantDetails" }
     );
 
-    // Calculate Product Discount & Add Fields for Grouping
     pipeline.push({
       $addFields: {
         calculatedDiscount: {
@@ -988,7 +973,6 @@ export const getFilteredFoodProducts = async (req, res) => {
       }
     });
 
-    // Group by Restaurant (Switching context from Products to Restaurants)
     pipeline.push({
       $group: {
         _id: "$restaurantDetails._id",
@@ -998,14 +982,12 @@ export const getFilteredFoodProducts = async (req, res) => {
       }
     });
 
-    // Filter out inactive restaurants
     pipeline.push({
       $match: {
         "restaurantDetails.isActive": true
       }
     });
 
-    // 2. Dynamic Rating Filter (Restaurant Level)
     if (rating) {
       const ratingValue = parseFloat(rating);
       if (!isNaN(ratingValue)) {
@@ -1023,7 +1005,6 @@ export const getFilteredFoodProducts = async (req, res) => {
       });
     }
 
-    // 3. Fast Delivery Filter
     if (fastDelivery === 'true') {
       pipeline.push({
         $match: {
@@ -1032,7 +1013,6 @@ export const getFilteredFoodProducts = async (req, res) => {
       });
     }
 
-    // 4. Offer Filter (Restaurant 'off' text OR Product Discount)
     if (offer === 'true') {
       pipeline.push({
         $match: {
@@ -1044,7 +1024,6 @@ export const getFilteredFoodProducts = async (req, res) => {
       });
     }
 
-    // --- Sorting ---
     let sortStage = {};
 
     if (sort === 'price_low_high') {
@@ -1061,7 +1040,6 @@ export const getFilteredFoodProducts = async (req, res) => {
 
     pipeline.push({ $sort: sortStage });
 
-    // Final Projection: Return Restaurant Details
     pipeline.push({
       $project: {
         _id: "$restaurantDetails._id",
@@ -1072,7 +1050,6 @@ export const getFilteredFoodProducts = async (req, res) => {
         off: "$restaurantDetails.off",
         description: "$restaurantDetails.description",
         address: "$restaurantDetails.address",
-        // Metadata from products
         startingPrice: "$minPrice",
         maxDiscount: "$maxDiscount"
       }

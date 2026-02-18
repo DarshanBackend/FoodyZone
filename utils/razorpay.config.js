@@ -6,13 +6,13 @@ export const razorpayInstance = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'your_key_secret_here'
 });
 
-export const EMI_TENURES = [3, 6, 9, 12]; // months
+export const EMI_TENURES = [3, 6, 9, 12];
 
 export const EMI_INTEREST_RATES = {
-  3: 0, // 0% for 3 months
-  6: 2, // 2% for 6 months
-  9: 3, // 3% for 9 months
-  12: 4 // 4% for 12 months
+  3: 0,
+  6: 2,
+  9: 3,
+  12: 4
 };
 
 export const calculateEMI = (principal, tenure) => {

@@ -88,7 +88,6 @@ export const getRestaurantReviews = async (req, res) => {
 
         const totalReviews = await RestaurantReview.countDocuments(query);
 
-        // Distribution stats
         const stats = await RestaurantReview.aggregate([
             { $match: { restaurantId: new mongoose.Types.ObjectId(restaurantId) } },
             { $group: { _id: null, avg: { $avg: "$rating" }, total: { $sum: 1 }, distribution: { $push: "$rating" } } }
@@ -98,7 +97,6 @@ export const getRestaurantReviews = async (req, res) => {
         const distributionCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
         statData.distribution.forEach(r => distributionCount[Math.round(r)] = (distributionCount[Math.round(r)] || 0) + 1);
 
-        // Check user review
         let userReview = null;
         if (req.user?._id) {
             userReview = await RestaurantReview.findOne({ restaurantId, userId: req.user._id }).populate("userId", "fullName avatar").lean();

@@ -66,7 +66,7 @@ const userSchema = new mongoose.Schema(
     fcmToken: {
       type: String,
       default: null,
-      select: false // Token is private, select explicitly when needed
+      select: false
     }
   },
   { timestamps: true }

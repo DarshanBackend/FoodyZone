@@ -3,17 +3,15 @@ import restaurantModel from "../models/restaurant.model.js";
 import { checkRequired, sendBadRequestResponse, sendErrorResponse, sendSuccessResponse } from "../utils/response.utils.js";
 import { deleteFromS3, updateS3, uploadToS3 } from "../utils/s3Service.js";
 
-// Create a new restaurant
 export const createRestaurant = async (req, res) => {
     try {
         const { title, description, time, delivery, option, off, categoryId } = req.body;
-        const { _id } = req.user; // sellerId
+        const { _id } = req.user;
 
         const files = req.files || {};
         const restaurantImage = files.restaurantImage ? files.restaurantImage[0] : null;
         const gImageFile = files.gImage ? files.gImage[0] : null;
 
-        // Validate required fields
         if (!title) {
             return sendBadRequestResponse(res, "Title is required");
         }
@@ -29,7 +27,6 @@ export const createRestaurant = async (req, res) => {
             return sendBadRequestResponse(res, "Restaurant Image is required");
         }
 
-        // Upload image to S3
         let img = await uploadToS3(restaurantImage, "restaurants");
 
         let gImage = null;
@@ -62,7 +59,6 @@ export const createRestaurant = async (req, res) => {
     }
 };
 
-// Get all restaurants (optional: filter by category)
 export const getAllRestaurants = async (req, res) => {
     try {
         const { categoryId } = req.query;
@@ -87,7 +83,6 @@ export const getAllRestaurants = async (req, res) => {
     }
 };
 
-// Get restaurant by ID
 export const getRestaurantById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -111,7 +106,6 @@ export const getRestaurantById = async (req, res) => {
     }
 };
 
-// Update restaurant
 export const updateRestaurant = async (req, res) => {
     try {
         const { id } = req.params;
@@ -126,7 +120,6 @@ export const updateRestaurant = async (req, res) => {
             return sendErrorResponse(res, 404, "Restaurant not found");
         }
 
-        // Ownership Check
         if (req.user.role === 'seller' && String(restaurant.sellerId) !== String(req.user._id)) {
             return sendErrorResponse(res, 403, "You can only update your own restaurant");
         }
@@ -137,7 +130,6 @@ export const updateRestaurant = async (req, res) => {
 
         let img = restaurant.image;
         if (restaurantImageFile) {
-            // If there is an existing image, replace it
             if (restaurant.image) {
                 const key = restaurant.image.split(".amazonaws.com/")[1];
                 if (key) {
@@ -175,7 +167,6 @@ export const updateRestaurant = async (req, res) => {
         restaurant.off = off || restaurant.off;
         restaurant.rating = rating !== undefined ? Number(rating) : restaurant.rating;
 
-        // Only update categoryId if valid
         if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
             restaurant.categoryId = categoryId;
         }
@@ -189,7 +180,6 @@ export const updateRestaurant = async (req, res) => {
     }
 };
 
-// Delete restaurant
 export const deleteRestaurant = async (req, res) => {
     try {
         const { id } = req.params;
@@ -204,20 +194,17 @@ export const deleteRestaurant = async (req, res) => {
             return sendErrorResponse(res, 404, "Restaurant not found");
         }
 
-        // Ownership Check
         if (req.user.role === 'seller' && String(restaurant.sellerId) !== String(req.user._id)) {
             return sendErrorResponse(res, 403, "You can only delete your own restaurant");
         }
 
         await restaurantModel.findByIdAndDelete(id);
 
-        // Delete image from S3 if exists
         if (restaurant.image) {
             const key = String(restaurant.image).split(".amazonaws.com/")[1];
             await deleteFromS3(key);
         }
 
-        // Delete gImage from S3 if exists
         if (restaurant.gImageKey) {
             await deleteFromS3(restaurant.gImageKey);
         } else if (restaurant.gImage) {
@@ -232,7 +219,6 @@ export const deleteRestaurant = async (req, res) => {
     }
 };
 
-// Search restaurants
 export const searchRestaurants = async (req, res) => {
     try {
         const { q, page = 1, limit = 20 } = req.query;

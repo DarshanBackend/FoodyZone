@@ -1,69 +1,78 @@
 import mongoose from "mongoose";
 import wishlistModel from "../models/wishlist.model.js";
+import productModel from "../models/product.model.js";
+import restaurantModel from "../models/restaurant.model.js";
 import { ThrowError } from "../utils/Error.utils.js";
 import {
   sendBadRequestResponse,
   sendNotFoundResponse,
   sendSuccessResponse,
 } from "../utils/response.utils.js";
-import productModel from "../models/product.model.js";
 
 export const addToWishlist = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { productId, packSizeId } = req.body;
+    const { productId, restaurantId } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-      return sendBadRequestResponse(res, "Invalid product ID!");
-    }
+    let targetRestaurantId = null;
+    let targetProductId = null;
 
-    const product = await productModel.findById(productId);
-    if (!product) return sendNotFoundResponse(res, "Product not found!");
-
-    let validPackSizeId = undefined;
-
-    if (packSizeId) {
-      if (!mongoose.Types.ObjectId.isValid(packSizeId)) {
-        return sendBadRequestResponse(res, "Invalid packSize ID!");
+    if (restaurantId) {
+      if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+        return sendBadRequestResponse(res, "Invalid restaurant ID!");
       }
+      const restaurant = await restaurantModel.findById(restaurantId);
+      if (!restaurant) return sendNotFoundResponse(res, "Restaurant not found!");
+      targetRestaurantId = restaurantId;
 
-      const packExists = product.packSizes && product.packSizes.id(packSizeId);
-      if (!packExists) {
-        return sendBadRequestResponse(res, "Pack size does not belong to this product!");
+    } else if (productId) {
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return sendBadRequestResponse(res, "Invalid product ID!");
       }
-      validPackSizeId = packSizeId;
+      const product = await productModel.findById(productId);
+      if (!product) return sendNotFoundResponse(res, "Product not found!");
+
+      if (product.restaurantId) {
+        targetRestaurantId = product.restaurantId;
+      } else {
+        targetProductId = productId;
+      }
+    } else {
+      return sendBadRequestResponse(res, "Provide productId or restaurantId!");
     }
 
     let wishlist = await wishlistModel.findOne({ userId });
     if (!wishlist) {
-      wishlist = new wishlistModel({ userId, items: [] });
+      wishlist = new wishlistModel({
+        userId,
+        products: [],
+        restaurants: []
+      });
     }
 
-    if (!Array.isArray(wishlist.items)) {
-      wishlist.items = [];
+    if (targetRestaurantId) {
+      const exists = wishlist.restaurants.some(item =>
+        item.restaurantId.toString() === targetRestaurantId.toString()
+      );
+      if (exists) {
+        return sendBadRequestResponse(res, "Restaurant already in wishlist!");
+      }
+      wishlist.restaurants.push({ restaurantId: targetRestaurantId });
+      await wishlist.save();
+      return sendSuccessResponse(res, "Restaurant added to wishlist!", wishlist);
+
+    } else if (targetProductId) {
+      const exists = wishlist.products.some(item =>
+        item.productId.toString() === targetProductId.toString()
+      );
+      if (exists) {
+        return sendBadRequestResponse(res, "Product already in wishlist!");
+      }
+      wishlist.products.push({ productId: targetProductId });
+      await wishlist.save();
+      return sendSuccessResponse(res, "Product added to wishlist!", wishlist);
     }
 
-    const exists = wishlist.items.some((item) => {
-      const isSameProduct = item.productId.toString() === productId;
-      const isSamePack = validPackSizeId
-        ? item.packSizeId && item.packSizeId.toString() === validPackSizeId
-        : !item.packSizeId;
-
-      return isSameProduct && isSamePack;
-    });
-
-    if (exists) {
-      return sendBadRequestResponse(res, "Product already in wishlist!");
-    }
-
-    wishlist.items.push({
-      productId,
-      packSizeId: validPackSizeId || undefined
-    });
-
-    await wishlist.save();
-
-    return sendSuccessResponse(res, "Added to wishlist!", wishlist);
   } catch (error) {
     return ThrowError(res, 500, error.message);
   }
@@ -76,7 +85,7 @@ export const getWishlist = async (req, res) => {
     const wishlist = await wishlistModel
       .findOne({ userId })
       .populate({
-        path: "items.productId",
+        path: "products.productId",
         model: "product",
         populate: [
           {
@@ -85,29 +94,37 @@ export const getWishlist = async (req, res) => {
           }
         ]
       })
+      .populate({
+        path: "restaurants.restaurantId",
+        model: "restaurant"
+      })
       .lean();
 
-    if (!wishlist || !wishlist.items?.length) {
-      return sendSuccessResponse(res, "Your wishlist is empty!", {});
+    if (!wishlist) {
+      return sendSuccessResponse(res, "Your wishlist is empty!", { products: [], restaurants: [] });
     }
 
-    // Filter out items where product is null (deleted products)
-    wishlist.items = wishlist.items.filter((item) => item.productId);
+    if (wishlist.products) {
+      wishlist.products = wishlist.products.filter(item => item.productId);
+    } else {
+      wishlist.products = [];
+    }
 
-    // Map to include pack size details if packSizeId exists
-    wishlist.items = wishlist.items.map(item => {
-      if (item.packSizeId && item.productId && Array.isArray(item.productId.packSizes)) {
-        const pack = item.productId.packSizes.find(p => p._id.toString() === item.packSizeId.toString());
-        // Add selected pack details to the item if needed or just keep packSizeId
-        // The frontend might need pack details alongside product
-        if (pack) {
-          item.selectedPack = pack;
-        }
-      }
-      return item;
-    });
+    if (wishlist.restaurants) {
+      wishlist.restaurants = wishlist.restaurants.filter(item => item.restaurantId);
+    } else {
+      wishlist.restaurants = [];
+    }
 
-    return sendSuccessResponse(res, "Wishlist fetched successfully!", wishlist);
+    const responseData = {
+      _id: wishlist._id,
+      userId: wishlist.userId,
+      products: wishlist.products,
+      restaurants: wishlist.restaurants
+    };
+
+    return sendSuccessResponse(res, "Wishlist fetched successfully!", responseData);
+
   } catch (error) {
     return ThrowError(res, 500, error.message);
   }
@@ -116,33 +133,54 @@ export const getWishlist = async (req, res) => {
 export const removeFromWishlist = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { productId, packSizeId } = req.body;
+    const { productId, restaurantId } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-      return sendBadRequestResponse(res, "Invalid product ID!");
+    let targetRestaurantId = null;
+    let targetProductId = null;
+
+    if (restaurantId) {
+      targetRestaurantId = restaurantId;
+    } else if (productId) {
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return sendBadRequestResponse(res, "Invalid product ID!");
+      }
+      const product = await productModel.findById(productId);
+      if (product && product.restaurantId) {
+        targetRestaurantId = product.restaurantId;
+      } else {
+        targetProductId = productId;
+      }
+    } else {
+      return sendBadRequestResponse(res, "Provide productId or restaurantId!");
     }
 
     const wishlist = await wishlistModel.findOne({ userId });
     if (!wishlist) return sendNotFoundResponse(res, "Wishlist not found!");
 
-    const existsIndex = wishlist.items.findIndex((item) => {
-      const isSameProduct = item.productId.toString() === productId;
-      const isSamePack = packSizeId
-        ? item.packSizeId && item.packSizeId.toString() === packSizeId
-        : !item.packSizeId;
+    let modified = false;
 
-      return isSameProduct && isSamePack;
-    });
+    if (targetRestaurantId) {
+      const initialLength = wishlist.restaurants.length;
+      wishlist.restaurants = wishlist.restaurants.filter(item =>
+        item.restaurantId.toString() !== targetRestaurantId.toString()
+      );
+      if (wishlist.restaurants.length !== initialLength) modified = true;
 
-    if (existsIndex === -1) {
-      return sendNotFoundResponse(res, "Product not found in wishlist!");
+    } else if (targetProductId) {
+      const initialLength = wishlist.products.length;
+      wishlist.products = wishlist.products.filter(item =>
+        item.productId.toString() !== targetProductId.toString()
+      );
+      if (wishlist.products.length !== initialLength) modified = true;
     }
 
-    wishlist.items.splice(existsIndex, 1);
+    if (!modified) {
+      return sendNotFoundResponse(res, "Item not found in wishlist!");
+    }
 
     await wishlist.save();
+    return sendSuccessResponse(res, "Removed from wishlist!", wishlist);
 
-    return sendSuccessResponse(res, "Product removed from wishlist!", wishlist);
   } catch (error) {
     return ThrowError(res, 500, error.message);
   }

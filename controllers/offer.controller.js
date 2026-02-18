@@ -34,7 +34,6 @@ export const getAllOfferBanners = async (req, res) => {
 
     const offers = await Offer.find(filter).populate("productId categoryId");
 
-    // If specific category is requested, return the list directly
     if (categoryId) {
       return res.status(200).json({ success: true, message: "Offer banners", data: offers });
     }

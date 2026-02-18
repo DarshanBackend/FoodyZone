@@ -1,7 +1,7 @@
 import notificationModel from "../models/notification.model.js";
 import UserModel from "../models/user.model.js";
 import mongoose from "mongoose";
-import { uploadToS3, deleteFromS3 } from '../utils/s3Service.js'; // Assuming you use this s3Service
+import { uploadToS3, deleteFromS3 } from '../utils/s3Service.js';
 import { sendPushNotification, sendMulticastNotification } from '../utils/notification.sender.js';
 
 export const getMyNotifications = async (req, res) => {
@@ -39,7 +39,7 @@ export const getMyNotifications = async (req, res) => {
             .sort({ createdAt: -1 })
             .skip((parseInt(page) - 1) * parseInt(limit))
             .limit(parseInt(limit))
-            .populate('userId', 'firstName lastName email') // Adjusted fields
+            .populate('userId', 'firstName lastName email')
             .lean();
 
         const timeAgo = (date) => {
@@ -94,7 +94,6 @@ export const getMyNotifications = async (req, res) => {
             result: resultNotifications,
         });
     } catch (error) {
-        console.error("Get Notifications Error:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error",
@@ -133,7 +132,6 @@ export const markAsRead = async (req, res) => {
             result: notification,
         });
     } catch (error) {
-        console.error("Mark as Read Error:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error",
@@ -154,13 +152,11 @@ export const createNotification = async (req, res) => {
             userId: bodyUserId
         } = req.body;
 
-        // Use bodyUserId (if provided) or allow sending to specific user
         const targetUserId = bodyUserId ? bodyUserId.trim() : null;
 
         let image = req.body.image || null;
 
         if (req.file) {
-            // Use existing s3 service
             const uploadResult = await uploadToS3(req.file, "notifications");
             image = uploadResult;
         }
@@ -193,7 +189,6 @@ export const createNotification = async (req, res) => {
                 expiresAt: expiresAt || null,
             });
 
-            // Async push notification attempt
             (async () => {
                 try {
                     const usersWithToken = await UserModel.find({
@@ -210,7 +205,6 @@ export const createNotification = async (req, res) => {
                         });
                     }
                 } catch (pushError) {
-                    console.error("⚠️ Failed to send push notifications:", pushError.message);
                 }
             })();
 
@@ -221,7 +215,6 @@ export const createNotification = async (req, res) => {
             });
         }
 
-        // Specific User
         let userToken = null;
         if (!isSendToAll && targetUserId) {
             const user = await UserModel.findById(targetUserId).select("_id fcmToken");
@@ -265,7 +258,6 @@ export const createNotification = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Create Notification Error:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",
@@ -289,7 +281,6 @@ export const getAllNotifications = async (req, res) => {
             result: notifications,
         });
     } catch (error) {
-        console.error("Get All Notifications Error:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
@@ -305,7 +296,6 @@ export const getNotificationById = async (req, res) => {
 
         res.status(200).json({ success: true, message: "Notification fetched", result: notification });
     } catch (error) {
-        console.error("Get Notification by ID Error:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
@@ -321,7 +311,7 @@ export const updateNotification = async (req, res) => {
         }
 
         if (req.file) {
-            if (notification.imageKey) { // Assuming imageKey is used for deletion
+            if (notification.imageKey) {
                 await deleteFromS3(notification.imageKey);
             }
             const uploadResult = await uploadToS3(req.file, "notifications");
@@ -336,7 +326,6 @@ export const updateNotification = async (req, res) => {
             result: updated,
         });
     } catch (error) {
-        console.error("Update Notification Error:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
@@ -350,7 +339,6 @@ export const deleteNotification = async (req, res) => {
             return res.status(404).json({ success: false, message: "Notification not found" });
         }
 
-        // Assuming imageKey exists for S3 deletion based on other controllers
         if (notification.imageKey) {
             await deleteFromS3(notification.imageKey);
         }
@@ -363,7 +351,6 @@ export const deleteNotification = async (req, res) => {
             result: deleted,
         });
     } catch (error) {
-        console.error("Delete Notification Error:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
@@ -386,7 +373,6 @@ export const deleteMyNotification = async (req, res) => {
                 { new: true }
             );
 
-            // Check if all users have deleted it
             const totalUsers = await UserModel.countDocuments({});
             const deletedCount = updatedNotification.deletedBy.length;
 
@@ -413,7 +399,6 @@ export const deleteMyNotification = async (req, res) => {
         }
 
     } catch (error) {
-        console.error("Delete My Notification Error:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };

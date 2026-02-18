@@ -13,7 +13,6 @@ const fixUrls = async () => {
         const oldRegion = 'ap-south-1';
         const newRegion = 'eu-north-1';
 
-        // Category
         const categories = await categoryModel.find({ image: { $regex: oldRegion } });
         for (const cat of categories) {
             cat.image = cat.image.replace(oldRegion, newRegion);
@@ -21,7 +20,6 @@ const fixUrls = async () => {
             console.log(`Updated Category ${cat._id}`);
         }
 
-        // Seller
         const sellers = await sellerModel.find({ avatar: { $regex: oldRegion } });
         for (const sel of sellers) {
             sel.avatar = sel.avatar.replace(oldRegion, newRegion);
@@ -29,7 +27,6 @@ const fixUrls = async () => {
             console.log(`Updated Seller ${sel._id}`);
         }
 
-        // User
         const users = await userModel.find({ avatar: { $regex: oldRegion } });
         for (const usr of users) {
             usr.avatar = usr.avatar.replace(oldRegion, newRegion);
@@ -37,7 +34,6 @@ const fixUrls = async () => {
             console.log(`Updated User ${usr._id}`);
         }
 
-        // Product
         const products = await productModel.find({});
         for (const prod of products) {
             let changed = false;
@@ -47,7 +43,6 @@ const fixUrls = async () => {
                 changed = true;
             }
 
-            // Check gImage array which contains objects { gImage: string, ... }
             if (prod.gImage && prod.gImage.length > 0) {
                 prod.gImage.forEach(imgObj => {
                     if (imgObj.gImage && imgObj.gImage.includes(oldRegion)) {

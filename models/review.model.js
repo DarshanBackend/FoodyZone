@@ -17,7 +17,7 @@ const reviewSchema = new mongoose.Schema({
     dislikes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'user' }]
 }, { timestamps: true, versionKey: false });
 
-reviewSchema.index({ productId: 1, userId: 1 }, { unique: true }); // One review per product per user
+reviewSchema.index({ productId: 1, userId: 1 }, { unique: true });
 
 reviewSchema.statics.getProductRatingStats = async function (productId) {
     const result = await this.aggregate([
